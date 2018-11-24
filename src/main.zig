@@ -29,57 +29,6 @@ fn info(comptime fmt: []const u8, args: ...) void {
     stdout_stream.?.print(fmt, args) catch return;
 }
 
-const Client = struct {
-    fd: i32,
-    addr: net.Address,
-
-    const InputState = enum {
-        Normal,
-        Normal_CR,
-        Invalid,
-        Invalid_CR,
-    };
-    input_state: InputState,
-    input_buffer: [512]u8,
-    input_received: usize,
-};
-
-const ClientList = LinkedList(Client);
-
-/// Accept a new client connection and allocate a client data.
-fn clientCreate(listenfd: i32, allocator: *Allocator) !*ClientList.Node {
-    var sockaddr: posix.sockaddr = undefined;
-    const clientfd = os.posixAccept(listenfd, &sockaddr, posix.SOCK_CLOEXEC) catch |err| {
-        warn("Failed to accept a new client connection: {}.\n", @errorName(err));
-        return err;
-    };
-
-    // TODO Output client address.
-    info("Accepted a new client connection.\n");
-
-    const addr = net.Address.initPosix(sockaddr);
-    const client_node = ClientList.Node.init(Client{
-        .fd = clientfd,
-        .addr = addr,
-        .input_state = Client.InputState.Normal,
-        .input_buffer = undefined,
-        .input_received = 0,
-    });
-    return allocator.create(client_node) catch |err| {
-        // TODO Output client address.
-        warn("Failed to allocate a client node: {}.\n", @errorName(err));
-        return err;
-    };
-}
-
-/// Close connection to a client and destroy the client data.
-fn clientDestroy(client_node: *ClientList.Node, allocator: *Allocator) void {
-    os.close(client_node.data.fd);
-    // TODO Output client address.
-    info("Closed a client connection.\n");
-    allocator.destroy(client_node);
-}
-
 const Lexer = struct {
     message: []const u8,
     pos: usize,
@@ -128,105 +77,160 @@ const Lexer = struct {
     }
 };
 
-/// Process the USER command.
-/// Parameters: <username> <hostname> <servername> <realname>
-fn clientProcessCommand_USER(client_node: *ClientList.Node, lexer: *Lexer) !void {
-    const username = try lexer.acceptParam();
-    const hostname = try lexer.acceptParam();
-    const servername = try lexer.acceptParam();
-    const realname = try lexer.acceptParam();
-}
+const Client = struct {
+    parent: ?*ClientList.Node,
+    allocator: *Allocator,
+    fd: i32,
+    addr: net.Address,
 
-/// Process a single message from a client.
-fn clientProcessMessage(client_node: *ClientList.Node, message: []const u8) void {
-    info("< {}\n", message);
+    const InputState = enum {
+        Normal,
+        Normal_CR,
+        Invalid,
+        Invalid_CR,
+    };
+    input_state: InputState,
+    input_buffer: [512]u8,
+    input_received: usize,
 
-    var lexer = Lexer{ .message = message, .pos = 0 };
+    /// Accept a new client connection and allocate client data.
+    fn accept(listenfd: i32, allocator: *Allocator) !*Client {
+        var sockaddr: posix.sockaddr = undefined;
+        const clientfd = os.posixAccept(listenfd, &sockaddr, posix.SOCK_CLOEXEC) catch |err| {
+            warn("Failed to accept a new client connection: {}.\n", @errorName(err));
+            return err;
+        };
 
-    // Parse any prefix.
-    if (lexer.getCurChar() == ':') {
-        // TODO Error.
+        // TODO Output client address.
+        info("Accepted a new client connection.\n");
+
+        const addr = net.Address.initPosix(sockaddr);
+        const init_node = ClientList.Node.init(Client{
+            .parent = null,
+            .allocator = allocator,
+            .fd = clientfd,
+            .addr = addr,
+            .input_state = Client.InputState.Normal,
+            .input_buffer = undefined,
+            .input_received = 0,
+        });
+        const dyn_node = allocator.create(init_node) catch |err| {
+            // TODO Output client address.
+            warn("Failed to allocate a client node: {}.\n", @errorName(err));
+            return err;
+        };
+        dyn_node.data.parent = dyn_node;
+        return &dyn_node.data;
     }
 
-    // Parse the command name.
-    const command = lexer.getWord();
-    // TODO Error handling.
-    var res: anyerror!void = {};
-    if (mem.eql(u8, command, "USER")) {
-        res = clientProcessCommand_USER(client_node, &lexer);
-    } else
-        warn("Unrecognized command: {}\n", command);
-
-    if (res) {} else |err| {
-        // TODO
+    /// Close connection to a client and destroy the client data.
+    fn destroy(client: *Client) void {
+        os.close(client.fd);
+        // TODO Output client address.
+        info("Closed a client connection.\n");
+        client.allocator.destroy(client.parent);
     }
-}
 
-fn clientProcessInput(client_node: *ClientList.Node) !void {
-    const client = &client_node.data;
-
-    assert(client.input_received < client.input_buffer.len);
-    var pos = client.input_received;
-    const read = try os.posixRead(client.fd, client.input_buffer[pos..]);
-    if (read == 0) {
-        // TODO read = 0 -> EOF. Report any unhandled data.
+    /// Process the USER command.
+    /// Parameters: <username> <hostname> <servername> <realname>
+    fn _processCommand_USER(client: *Client, lexer: *Lexer) !void {
+        const username = try lexer.acceptParam();
+        const hostname = try lexer.acceptParam();
+        const servername = try lexer.acceptParam();
+        const realname = try lexer.acceptParam();
     }
-    client.input_received += read;
 
-    var message_begin: usize = 0;
-    while (pos < client.input_received) : (pos += 1) {
-        const char = client.input_buffer[pos];
-        switch (client.input_state) {
-            Client.InputState.Normal => {
-                if (char == '\r')
-                    client.input_state = Client.InputState.Normal_CR;
-                // TODO Check for invalid chars.
-            },
-            Client.InputState.Normal_CR => {
-                if (char == '\n') {
-                    clientProcessMessage(client_node, client.input_buffer[message_begin .. pos - 1]);
-                    client.input_state = Client.InputState.Normal;
-                    message_begin = pos + 1;
-                } else {
-                    // TODO Print an error message.
-                    client.input_state = Client.InputState.Invalid;
-                }
-            },
-            Client.InputState.Invalid => {
-                if (char == '\r')
-                    client.input_state = Client.InputState.Invalid_CR;
-            },
-            Client.InputState.Invalid_CR => {
-                if (char == '\n') {
-                    client.input_state = Client.InputState.Normal;
-                    message_begin = pos + 1;
-                } else
-                    client.input_state = Client.InputState.Invalid;
-            },
+    /// Process a single message from a client.
+    fn _processMessage(client: *Client, message: []const u8) void {
+        info("< {}\n", message);
+
+        var lexer = Lexer{ .message = message, .pos = 0 };
+
+        // Parse any prefix.
+        if (lexer.getCurChar() == ':') {
+            // TODO Error.
+        }
+
+        // Parse the command name.
+        const command = lexer.getWord();
+        // TODO Error handling.
+        var res: anyerror!void = {};
+        if (mem.eql(u8, command, "USER")) {
+            res = client._processCommand_USER(&lexer);
+        } else
+            warn("Unrecognized command: {}\n", command);
+
+        if (res) {} else |err| {
+            // TODO
         }
     }
 
-    switch (client.input_state) {
-        Client.InputState.Normal, Client.InputState.Normal_CR => {
-            if (message_begin >= client.input_received) {
-                assert(message_begin == client.input_received);
-                client.input_received = 0;
-            } else if (message_begin == 0) {
-                // TODO Message overflow.
-                if (client.input_state == Client.InputState.Normal) { // TODO Remove braces.
-                    client.input_state = Client.InputState.Invalid;
-                } else
-                    client.input_state = Client.InputState.Invalid_CR;
-            } else {
-                mem.copy(u8, client.input_buffer[0..], client.input_buffer[message_begin..client.input_received]);
-                client.input_received -= message_begin;
+    fn processInput(client: *Client) !void {
+        assert(client.input_received < client.input_buffer.len);
+        var pos = client.input_received;
+        const read = try os.posixRead(client.fd, client.input_buffer[pos..]);
+        if (read == 0) {
+            // TODO read = 0 -> EOF. Report any unhandled data.
+        }
+        client.input_received += read;
+
+        var message_begin: usize = 0;
+        while (pos < client.input_received) : (pos += 1) {
+            const char = client.input_buffer[pos];
+            switch (client.input_state) {
+                Client.InputState.Normal => {
+                    if (char == '\r')
+                        client.input_state = Client.InputState.Normal_CR;
+                    // TODO Check for invalid chars.
+                },
+                Client.InputState.Normal_CR => {
+                    if (char == '\n') {
+                        client._processMessage(client.input_buffer[message_begin .. pos - 1]);
+                        client.input_state = Client.InputState.Normal;
+                        message_begin = pos + 1;
+                    } else {
+                        // TODO Print an error message.
+                        client.input_state = Client.InputState.Invalid;
+                    }
+                },
+                Client.InputState.Invalid => {
+                    if (char == '\r')
+                        client.input_state = Client.InputState.Invalid_CR;
+                },
+                Client.InputState.Invalid_CR => {
+                    if (char == '\n') {
+                        client.input_state = Client.InputState.Normal;
+                        message_begin = pos + 1;
+                    } else
+                        client.input_state = Client.InputState.Invalid;
+                },
             }
-        },
-        Client.InputState.Invalid, Client.InputState.Invalid_CR => {
-            client.input_received = 0;
-        },
+        }
+
+        switch (client.input_state) {
+            Client.InputState.Normal, Client.InputState.Normal_CR => {
+                if (message_begin >= client.input_received) {
+                    assert(message_begin == client.input_received);
+                    client.input_received = 0;
+                } else if (message_begin == 0) {
+                    // TODO Message overflow.
+                    if (client.input_state == Client.InputState.Normal) { // TODO Remove braces.
+                        client.input_state = Client.InputState.Invalid;
+                    } else
+                        client.input_state = Client.InputState.Invalid_CR;
+                } else {
+                    mem.copy(u8, client.input_buffer[0..], client.input_buffer[message_begin..client.input_received]);
+                    client.input_received -= message_begin;
+                }
+            },
+            Client.InputState.Invalid, Client.InputState.Invalid_CR => {
+                client.input_received = 0;
+            },
+        }
     }
-}
+};
+
+const ClientList = LinkedList(Client);
 
 pub fn main() u8 {
     // Create the server socket.
@@ -268,8 +272,10 @@ pub fn main() u8 {
     var allocator = std.heap.c_allocator;
     var clients = ClientList.init();
     defer {
-        while (clients.pop()) |client_node|
-            clientDestroy(client_node, allocator);
+        while (clients.pop()) |client_node| {
+            // Destroy the client and its LinkedList node.
+            client_node.data.destroy();
+        }
     }
 
     // Listen for events.
@@ -282,26 +288,26 @@ pub fn main() u8 {
 
         // Check for a new connection and accept it.
         if (events[0].data.ptr == 0) {
-            const client_node = clientCreate(listenfd, allocator) catch continue;
+            const client = Client.accept(listenfd, allocator) catch continue;
 
             // Listen for the client.
-            var clientfd = client_node.data.fd;
+            var clientfd = client.fd;
             // FIXME .events
             var clientfd_event = posix.epoll_event{
                 .events = posix.EPOLLIN,
-                .data = posix.epoll_data{ .ptr = @ptrToInt(client_node) },
+                .data = posix.epoll_data{ .ptr = @ptrToInt(client) },
             };
             os.linuxEpollCtl(epfd, posix.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
                 warn("Failed to add a client socket to the epoll instance: {}.\n", @errorName(err));
-                clientDestroy(client_node, allocator);
+                client.destroy();
                 continue;
             };
 
-            clients.append(client_node);
+            clients.append(client.parent.?);
         } else {
-            const client_node = @intToPtr(*ClientList.Node, events[0].data.ptr);
+            const client = @intToPtr(*Client, events[0].data.ptr);
             // TODO
-            clientProcessInput(client_node) catch return 1;
+            client.processInput() catch return 1;
         }
     }
 
