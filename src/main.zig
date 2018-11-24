@@ -104,7 +104,35 @@ const Lexer = struct {
 
         return self.message[begin..end];
     }
+
+    fn getParam(self: *Lexer) []const u8 {
+        if (self.getCurChar() == ':') {
+            const begin = self.pos + 1;
+            self.pos = self.message.len;
+            return self.message[begin..self.pos];
+        }
+        return self.getWord();
+    }
+
+    fn acceptParam(self: *Lexer) ![]const u8 {
+        const res = self.getParam();
+        if (res.len == 0) {
+            // TODO Error message.
+            warn("Param missing\n");
+            return error.NeedsMoreParams;
+        }
+        return res;
+    }
 };
+
+/// Process the USER command.
+/// Parameters: <username> <hostname> <servername> <realname>
+fn clientProcessCommand_USER(client_node: *ClientList.Node, lexer: *Lexer) !void {
+    const username = try lexer.acceptParam();
+    const hostname = try lexer.acceptParam();
+    const servername = try lexer.acceptParam();
+    const realname = try lexer.acceptParam();
+}
 
 /// Process a single message from a client.
 fn clientProcessMessage(client_node: *ClientList.Node, message: []const u8) void {
@@ -119,10 +147,15 @@ fn clientProcessMessage(client_node: *ClientList.Node, message: []const u8) void
 
     // Parse the command name.
     const command = lexer.getWord();
-    if (mem.eql(u8, command, "TODO")) {
-        // TODO
-    } else {
+    // TODO Error handling.
+    var res: anyerror!void = {};
+    if (mem.eql(u8, command, "USER")) {
+        res = clientProcessCommand_USER(client_node, &lexer);
+    } else
         warn("Unrecognized command: {}\n", command);
+
+    if (res) {} else |err| {
+        // TODO
     }
 }
 
