@@ -49,8 +49,7 @@ const ClientList = LinkedList(Client);
 /// Accept a new client connection and allocate a client data.
 fn clientCreate(listenfd: i32, allocator: *Allocator) !*ClientList.Node {
     var sockaddr: posix.sockaddr = undefined;
-    const clientfd = os.posixAccept(listenfd, &sockaddr, posix.SOCK_CLOEXEC)
-        catch |err| {
+    const clientfd = os.posixAccept(listenfd, &sockaddr, posix.SOCK_CLOEXEC) catch |err| {
         warn("Failed to accept a new client connection: {}.\n", @errorName(err));
         return err;
     };
@@ -59,9 +58,13 @@ fn clientCreate(listenfd: i32, allocator: *Allocator) !*ClientList.Node {
     info("Accepted a new client connection.\n");
 
     const addr = net.Address.initPosix(sockaddr);
-    const client_node = ClientList.Node.init(
-            Client{ .fd = clientfd, .addr = addr, .input_state = Client.InputState.Normal,
-                    .input_buffer = undefined, .input_received = 0 });
+    const client_node = ClientList.Node.init(Client{
+        .fd = clientfd,
+        .addr = addr,
+        .input_state = Client.InputState.Normal,
+        .input_buffer = undefined,
+        .input_received = 0,
+    });
     return allocator.create(client_node) catch |err| {
         // TODO Output client address.
         warn("Failed to allocate a client node: {}.\n", @errorName(err));
@@ -181,8 +184,7 @@ fn clientProcessInput(client_node: *ClientList.Node) !void {
             },
             Client.InputState.Normal_CR => {
                 if (char == '\n') {
-                    clientProcessMessage(client_node,
-                            client.input_buffer[message_begin..pos - 1]);
+                    clientProcessMessage(client_node, client.input_buffer[message_begin .. pos - 1]);
                     client.input_state = Client.InputState.Normal;
                     message_begin = pos + 1;
                 } else {
@@ -210,15 +212,13 @@ fn clientProcessInput(client_node: *ClientList.Node) !void {
                 assert(message_begin == client.input_received);
                 client.input_received = 0;
             } else if (message_begin == 0) {
-               // TODO Message overflow.
-               if (client.input_state == Client.InputState.Normal) { // TODO Remove braces.
-                   client.input_state = Client.InputState.Invalid;
-               } else
-                   client.input_state = Client.InputState.Invalid_CR;
-            }
-            else {
-                mem.copy(u8, client.input_buffer[0..],
-                         client.input_buffer[message_begin..client.input_received]);
+                // TODO Message overflow.
+                if (client.input_state == Client.InputState.Normal) { // TODO Remove braces.
+                    client.input_state = Client.InputState.Invalid;
+                } else
+                    client.input_state = Client.InputState.Invalid_CR;
+            } else {
+                mem.copy(u8, client.input_buffer[0..], client.input_buffer[message_begin..client.input_received]);
                 client.input_received -= message_begin;
             }
         },
@@ -230,8 +230,7 @@ fn clientProcessInput(client_node: *ClientList.Node) !void {
 
 pub fn main() u8 {
     // Create the server socket.
-    const listenfd = os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC,
-            posix.PROTO_tcp) catch |err| {
+    const listenfd = os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC, posix.PROTO_tcp) catch |err| {
         warn("Failed to create a server socket: {}.\n", @errorName(err));
         return 1;
     };
@@ -287,8 +286,8 @@ pub fn main() u8 {
 
             // Listen for the client.
             var clientfd = client_node.data.fd;
+            // FIXME .events
             var clientfd_event = posix.epoll_event{
-                // FIXME
                 .events = posix.EPOLLIN,
                 .data = posix.epoll_data{ .ptr = @ptrToInt(client_node) },
             };
