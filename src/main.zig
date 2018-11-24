@@ -208,6 +208,18 @@ const Client = struct {
         client.allocator.destroy(client.parent);
     }
 
+    fn _info(self: *Client, comptime fmt: []const u8, args: ...) void {
+        // TODO Improve the client identification.
+        const clientid = self.fd;
+        info("{}: " ++ fmt, clientid, args);
+    }
+
+    fn _warn(self: *Client, comptime fmt: []const u8, args: ...) void {
+        // TODO Improve the client identification.
+        const clientid = self.fd;
+        warn("{}: " ++ fmt, clientid, args);
+    }
+
     /// Process the USER command.
     /// Parameters: <username> <hostname> <servername> <realname>
     fn _processCommand_USER(client: *Client, lexer: *Lexer) !void {
