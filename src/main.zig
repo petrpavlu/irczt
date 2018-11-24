@@ -142,16 +142,6 @@ const Lexer = struct {
         }
         return self.getWord();
     }
-
-    fn acceptParam(self: *Lexer) ![]const u8 {
-        const res = self.getParam();
-        if (res.len == 0) {
-            // TODO Error message.
-            warn("Param missing\n");
-            return error.NeedsMoreParams;
-        }
-        return res;
-    }
 };
 
 const Client = struct {
@@ -220,13 +210,23 @@ const Client = struct {
         warn("{}: " ++ fmt, clientid, args);
     }
 
+    fn _acceptParam(self: *Client, lexer: *Lexer) ![]const u8 {
+        const res = lexer.getParam();
+        if (res.len == 0) {
+            // TODO Error message.
+            self._warn("Param missing\n");
+            return error.NeedsMoreParams;
+        }
+        return res;
+    }
+
     /// Process the USER command.
     /// Parameters: <username> <hostname> <servername> <realname>
-    fn _processCommand_USER(client: *Client, lexer: *Lexer) !void {
-        const username = try lexer.acceptParam();
-        const hostname = try lexer.acceptParam();
-        const servername = try lexer.acceptParam();
-        const realname = try lexer.acceptParam();
+    fn _processCommand_USER(self: *Client, lexer: *Lexer) !void {
+        const username = try self._acceptParam(lexer);
+        const hostname = try self._acceptParam(lexer);
+        const servername = try self._acceptParam(lexer);
+        const realname = try self._acceptParam(lexer);
     }
 
     /// Process a single message from a client.
