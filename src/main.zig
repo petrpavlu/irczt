@@ -194,7 +194,7 @@ const Client = struct {
     fn destroy(self: *Client) void {
         os.close(self.fd);
         // TODO Output client address.
-        info("Closed a client connection.\n");
+        self._info("Closed a client connection.\n");
         self.allocator.destroy(self.parent);
     }
 
@@ -231,7 +231,7 @@ const Client = struct {
 
     /// Process a single message from a client.
     fn _processMessage(self: *Client, message: []const u8) void {
-        info("< {}\n", message);
+        self._info("< {}\n", message);
 
         var lexer = Lexer{ .message = message, .pos = 0 };
 
@@ -247,7 +247,7 @@ const Client = struct {
         if (mem.eql(u8, command, "USER")) {
             res = self._processCommand_USER(&lexer);
         } else
-            warn("Unrecognized command: {}\n", command);
+            self._warn("Unrecognized command: {}\n", command);
 
         if (res) {} else |err| {
             // TODO
