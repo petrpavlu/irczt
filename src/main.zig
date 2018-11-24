@@ -103,7 +103,7 @@ fn warn(comptime fmt: []const u8, args: ...) void {
     assert(stderr_stream != null);
     var timestamp: [timestamp_str_width]u8 = undefined;
     formatTimeStamp(timestamp[0..], time.milliTimestamp());
-    stderr_stream.?.print("{} " ++ fmt, timestamp, args) catch return;
+    stderr_stream.?.print("\x1b[31m{} " ++ fmt ++ "\x1b[0m", timestamp, args) catch return;
 }
 
 const Lexer = struct {
