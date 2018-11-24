@@ -7,26 +7,103 @@ const mem = std.mem;
 const net = std.net;
 const os = std.os;
 const posix = std.os.posix;
+const time = std.os.time;
 
 const Allocator = std.mem.Allocator;
 const LinkedList = std.LinkedList;
 const assert = std.debug.assert;
-const warn = std.debug.warn;
 
 const bind_ip4_addr = "127.0.0.1";
 const bind_port: u16 = 6667;
 
+const timestamp_str_width = "[18446744073709551.615]".len;
+
+fn formatTimeStamp(output: []u8, milliseconds: u64) void {
+    assert(output.len >= timestamp_str_width);
+
+    var rem = milliseconds;
+    var i = timestamp_str_width;
+    while (i > 0) : (i -= 1) {
+        if (i == timestamp_str_width) {
+            output[i - 1] = ']';
+        } else if (i == timestamp_str_width - 4) {
+            output[i - 1] = '.';
+        } else if (i == 1) {
+            output[i - 1] = '[';
+        } else if (rem == 0) {
+            if (i > timestamp_str_width - 6) {
+                output[i - 1] = '0';
+            } else
+                output[i - 1] = ' ';
+        } else {
+            output[i - 1] = '0' + @intCast(u8, rem % 10);
+            rem /= 10;
+        }
+    }
+}
+
+test "format timestamp" {
+    var buffer: [timestamp_str_width]u8 = undefined;
+
+    formatTimeStamp(buffer[0..], 0);
+    assert(mem.eql(u8, buffer, "[                0.000]"));
+
+    formatTimeStamp(buffer[0..], 1);
+    assert(mem.eql(u8, buffer, "[                0.001]"));
+
+    formatTimeStamp(buffer[0..], 100);
+    assert(mem.eql(u8, buffer, "[                0.100]"));
+
+    formatTimeStamp(buffer[0..], 1000);
+    assert(mem.eql(u8, buffer, "[                1.000]"));
+
+    formatTimeStamp(buffer[0..], 10000);
+    assert(mem.eql(u8, buffer, "[               10.000]"));
+
+    formatTimeStamp(buffer[0..], 1234567890);
+    assert(mem.eql(u8, buffer, "[          1234567.890]"));
+
+    formatTimeStamp(buffer[0..], 18446744073709551615);
+    assert(mem.eql(u8, buffer, "[18446744073709551.615]"));
+}
+
 var stdout_file_out_stream: os.File.OutStream = undefined;
 var stdout_stream: ?*io.OutStream(os.File.WriteError) = null;
 
+var stderr_file_out_stream: os.File.OutStream = undefined;
+var stderr_stream: ?*io.OutStream(os.File.WriteError) = null;
+
+/// Initialize stdout and stderr streams.
+fn initOutput() void {
+    if (stdout_stream == null) {
+        if (io.getStdOut()) |stdout_file| {
+            stdout_file_out_stream = stdout_file.outStream();
+            stdout_stream = &stdout_file_out_stream.stream;
+        } else |err| {}
+    }
+
+    if (stderr_stream == null) {
+        if (io.getStdOut()) |stderr_file| {
+            stderr_file_out_stream = stderr_file.outStream();
+            stderr_stream = &stderr_file_out_stream.stream;
+        } else |err| {}
+    }
+}
+
 /// Print a message on the standard output.
 fn info(comptime fmt: []const u8, args: ...) void {
-    if (stdout_stream == null) {
-        const stdout_file = io.getStdOut() catch return;
-        stdout_file_out_stream = stdout_file.outStream();
-        stdout_stream = &stdout_file_out_stream.stream;
-    }
-    stdout_stream.?.print(fmt, args) catch return;
+    assert(stdout_stream != null);
+    var timestamp: [timestamp_str_width]u8 = undefined;
+    formatTimeStamp(timestamp[0..], time.milliTimestamp());
+    stdout_stream.?.print("{} " ++ fmt, timestamp, args) catch return;
+}
+
+/// Print a message on the standard error output.
+fn warn(comptime fmt: []const u8, args: ...) void {
+    assert(stderr_stream != null);
+    var timestamp: [timestamp_str_width]u8 = undefined;
+    formatTimeStamp(timestamp[0..], time.milliTimestamp());
+    stderr_stream.?.print("{} " ++ fmt, timestamp, args) catch return;
 }
 
 const Lexer = struct {
@@ -233,6 +310,9 @@ const Client = struct {
 const ClientList = LinkedList(Client);
 
 pub fn main() u8 {
+    // Initialize stdout and stderr streams.
+    initOutput();
+
     // Create the server socket.
     const listenfd = os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC, posix.PROTO_tcp) catch |err| {
         warn("Failed to create a server socket: {}.\n", @errorName(err));
