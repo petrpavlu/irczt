@@ -191,11 +191,11 @@ const Client = struct {
     }
 
     /// Close connection to a client and destroy the client data.
-    fn destroy(client: *Client) void {
-        os.close(client.fd);
+    fn destroy(self: *Client) void {
+        os.close(self.fd);
         // TODO Output client address.
         info("Closed a client connection.\n");
-        client.allocator.destroy(client.parent);
+        self.allocator.destroy(self.parent);
     }
 
     fn _info(self: *Client, comptime fmt: []const u8, args: ...) void {
@@ -230,7 +230,7 @@ const Client = struct {
     }
 
     /// Process a single message from a client.
-    fn _processMessage(client: *Client, message: []const u8) void {
+    fn _processMessage(self: *Client, message: []const u8) void {
         info("< {}\n", message);
 
         var lexer = Lexer{ .message = message, .pos = 0 };
@@ -245,7 +245,7 @@ const Client = struct {
         // TODO Error handling.
         var res: anyerror!void = {};
         if (mem.eql(u8, command, "USER")) {
-            res = client._processCommand_USER(&lexer);
+            res = self._processCommand_USER(&lexer);
         } else
             warn("Unrecognized command: {}\n", command);
 
@@ -254,66 +254,66 @@ const Client = struct {
         }
     }
 
-    fn processInput(client: *Client) !void {
-        assert(client.input_received < client.input_buffer.len);
-        var pos = client.input_received;
-        const read = try os.posixRead(client.fd, client.input_buffer[pos..]);
+    fn processInput(self: *Client) !void {
+        assert(self.input_received < self.input_buffer.len);
+        var pos = self.input_received;
+        const read = try os.posixRead(self.fd, self.input_buffer[pos..]);
         if (read == 0) {
             // TODO read = 0 -> EOF. Report any unhandled data.
         }
-        client.input_received += read;
+        self.input_received += read;
 
         var message_begin: usize = 0;
-        while (pos < client.input_received) : (pos += 1) {
-            const char = client.input_buffer[pos];
-            switch (client.input_state) {
+        while (pos < self.input_received) : (pos += 1) {
+            const char = self.input_buffer[pos];
+            switch (self.input_state) {
                 Client.InputState.Normal => {
                     if (char == '\r')
-                        client.input_state = Client.InputState.Normal_CR;
+                        self.input_state = Client.InputState.Normal_CR;
                     // TODO Check for invalid chars.
                 },
                 Client.InputState.Normal_CR => {
                     if (char == '\n') {
-                        client._processMessage(client.input_buffer[message_begin .. pos - 1]);
-                        client.input_state = Client.InputState.Normal;
+                        self._processMessage(self.input_buffer[message_begin .. pos - 1]);
+                        self.input_state = Client.InputState.Normal;
                         message_begin = pos + 1;
                     } else {
                         // TODO Print an error message.
-                        client.input_state = Client.InputState.Invalid;
+                        self.input_state = Client.InputState.Invalid;
                     }
                 },
                 Client.InputState.Invalid => {
                     if (char == '\r')
-                        client.input_state = Client.InputState.Invalid_CR;
+                        self.input_state = Client.InputState.Invalid_CR;
                 },
                 Client.InputState.Invalid_CR => {
                     if (char == '\n') {
-                        client.input_state = Client.InputState.Normal;
+                        self.input_state = Client.InputState.Normal;
                         message_begin = pos + 1;
                     } else
-                        client.input_state = Client.InputState.Invalid;
+                        self.input_state = Client.InputState.Invalid;
                 },
             }
         }
 
-        switch (client.input_state) {
+        switch (self.input_state) {
             Client.InputState.Normal, Client.InputState.Normal_CR => {
-                if (message_begin >= client.input_received) {
-                    assert(message_begin == client.input_received);
-                    client.input_received = 0;
+                if (message_begin >= self.input_received) {
+                    assert(message_begin == self.input_received);
+                    self.input_received = 0;
                 } else if (message_begin == 0) {
                     // TODO Message overflow.
-                    if (client.input_state == Client.InputState.Normal) { // TODO Remove braces.
-                        client.input_state = Client.InputState.Invalid;
+                    if (self.input_state == Client.InputState.Normal) { // TODO Remove braces.
+                        self.input_state = Client.InputState.Invalid;
                     } else
-                        client.input_state = Client.InputState.Invalid_CR;
+                        self.input_state = Client.InputState.Invalid_CR;
                 } else {
-                    mem.copy(u8, client.input_buffer[0..], client.input_buffer[message_begin..client.input_received]);
-                    client.input_received -= message_begin;
+                    mem.copy(u8, self.input_buffer[0..], self.input_buffer[message_begin..self.input_received]);
+                    self.input_received -= message_begin;
                 }
             },
             Client.InputState.Invalid, Client.InputState.Invalid_CR => {
-                client.input_received = 0;
+                self.input_received = 0;
             },
         }
     }
