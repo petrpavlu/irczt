@@ -135,7 +135,7 @@ const Lexer = struct {
         const begin = self.pos;
 
         var end = begin;
-        while (self.getCurChar() != 0 and self.getCurChar() != ' ') : (end += 1)
+        while (self.getCurChar() != '\x00' and self.getCurChar() != ' ') : (end += 1)
             self.nextChar();
 
         while (self.getCurChar() == ' ')
@@ -260,8 +260,7 @@ const Client = struct {
             return error.NeedsMoreParams;
         }
         if (res.len > maxlen) {
-            self._warn("Position {}, parameter {} is too long (maximum: {}, actual: {}).\n",
-                    begin + 1, param, maxlen, res.len);
+            self._warn("Position {}, parameter {} is too long (maximum: {}, actual: {}).\n", begin + 1, param, maxlen, res.len);
             // IRC has no error reply for too long parameters, so cut-off the value.
             return res[0..maxlen];
         }
@@ -296,13 +295,12 @@ const Client = struct {
     /// Process the NICK command.
     /// Parameters: <nickname>
     fn _processCommand_NICK(self: *Client, lexer: *Lexer) !void {
-        const nickname = self._acceptParamMax(lexer, "<nickname>", self.nickname.len)
-            catch |err| {
-                if (err == error.NeedsMoreParams) {
-                    return error.NoNickNameGiven;
-                } else
-                    return err;
-            };
+        const nickname = self._acceptParamMax(lexer, "<nickname>", self.nickname.len) catch |err| {
+            if (err == error.NeedsMoreParams) {
+                return error.NoNickNameGiven;
+            } else
+                return err;
+        };
         mem.copy(u8, self.nickname[0..], nickname);
         self.nickname_end = nickname.len;
 
