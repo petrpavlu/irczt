@@ -23,6 +23,7 @@ const bind_port: u16 = 6667;
 
 const timestamp_str_width = "[18446744073709551.615]".len;
 
+/// Convert a timestamp to a string.
 fn formatTimeStamp(output: []u8, milliseconds: u64) void {
     assert(output.len >= timestamp_str_width);
 
@@ -337,7 +338,7 @@ const Client = struct {
         try self.write_stream.?.print(fmt ++ "\r\n", args);
     }
 
-    /// Process a single message from a client.
+    /// Process a single message from the client.
     fn _processMessage(self: *Client, message: []const u8) void {
         self._info("< {}\n", message);
 
