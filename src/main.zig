@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const io = std.io;
+const math = std.math;
 const mem = std.mem;
 const net = std.net;
 const os = std.os;
@@ -110,6 +111,10 @@ const Lexer = struct {
     message: []const u8,
     pos: usize,
 
+    fn getCurPos(self: *Lexer) usize {
+        return self.pos;
+    }
+
     fn getCurChar(self: *Lexer) u8 {
         if (self.pos < self.message.len)
             return self.message[self.pos];
@@ -150,6 +155,9 @@ const Client = struct {
     fd: i32,
     addr: net.Address,
 
+    write_file_out_stream: os.File.OutStream,
+    write_stream: ?*io.OutStream(os.File.WriteError),
+
     const InputState = enum {
         Normal,
         Normal_CR,
@@ -159,6 +167,17 @@ const Client = struct {
     input_state: InputState,
     input_buffer: [512]u8,
     input_received: usize,
+
+    /// Flag indicating whether the initial USER and NICK pair was already received and the client
+    /// is fully joined.
+    joined: bool,
+
+    const RealNameType = [512]u8;
+    realname: RealNameType,
+    realname_end: usize,
+    const NickNameType = [9]u8;
+    nickname: NickNameType,
+    nickname_end: usize,
 
     /// Accept a new client connection and allocate client data.
     fn accept(listenfd: i32, allocator: *Allocator) !*Client {
@@ -177,9 +196,16 @@ const Client = struct {
             .allocator = allocator,
             .fd = clientfd,
             .addr = addr,
+            .write_file_out_stream = os.File.openHandle(clientfd).outStream(),
+            .write_stream = null,
             .input_state = Client.InputState.Normal,
             .input_buffer = undefined,
             .input_received = 0,
+            .joined = false,
+            .realname = []u8{0} ** Client.RealNameType.len,
+            .realname_end = 0,
+            .nickname = []u8{0} ** Client.NickNameType.len,
+            .nickname_end = 0,
         });
         const dyn_node = allocator.create(init_node) catch |err| {
             // TODO Output client address.
@@ -187,6 +213,7 @@ const Client = struct {
             return err;
         };
         dyn_node.data.parent = dyn_node;
+        dyn_node.data.write_stream = &dyn_node.data.write_file_out_stream.stream;
         return &dyn_node.data;
     }
 
@@ -196,6 +223,16 @@ const Client = struct {
         // TODO Output client address.
         self._info("Closed a client connection.\n");
         self.allocator.destroy(self.parent);
+    }
+
+    /// Get a slice with the client's real name.
+    fn _getRealName(self: *Client) []const u8 {
+        return self.realname[0..self.realname_end];
+    }
+
+    /// Get a slice with the client's nick name.
+    fn _getNickName(self: *Client) []const u8 {
+        return self.nickname[0..self.nickname_end];
     }
 
     fn _info(self: *Client, comptime fmt: []const u8, args: ...) void {
@@ -210,23 +247,90 @@ const Client = struct {
         warn("{}: " ++ fmt, clientid, args);
     }
 
-    fn _acceptParam(self: *Client, lexer: *Lexer) ![]const u8 {
+    fn _acceptParamMax(self: *Client, lexer: *Lexer, param: []const u8, maxlen: usize) ![]const u8 {
+        const begin = lexer.getCurPos();
         const res = lexer.getParam();
         if (res.len == 0) {
-            // TODO Error message.
-            self._warn("Param missing\n");
+            self._warn("Position {}, expected parameter {}.\n", begin + 1, param);
             return error.NeedsMoreParams;
         }
+        if (res.len > maxlen) {
+            self._warn("Position {}, parameter {} is too long (maximum: {}, actual: {}).\n",
+                    begin + 1, param, maxlen, res.len);
+            // IRC has no error reply for too long parameters, so cut-off the value.
+            return res[0..maxlen];
+        }
         return res;
+    }
+
+    fn _acceptParam(self: *Client, lexer: *Lexer, param: []const u8) ![]const u8 {
+        return self._acceptParamMax(lexer, param, math.maxInt(usize));
     }
 
     /// Process the USER command.
     /// Parameters: <username> <hostname> <servername> <realname>
     fn _processCommand_USER(self: *Client, lexer: *Lexer) !void {
-        const username = try self._acceptParam(lexer);
-        const hostname = try self._acceptParam(lexer);
-        const servername = try self._acceptParam(lexer);
-        const realname = try self._acceptParam(lexer);
+        if (self.realname_end != 0)
+            return error.AlreadyRegistred;
+
+        const username = try self._acceptParam(lexer, "<username>");
+        const hostname = try self._acceptParam(lexer, "<hostname>");
+        const servername = try self._acceptParam(lexer, "<servername>");
+
+        const realname = try self._acceptParamMax(lexer, "<realname>", self.realname.len);
+        mem.copy(u8, self.realname[0..], realname);
+        self.realname_end = realname.len;
+
+        // TODO Check there no more unexpected parameters.
+
+        // Complete the join if the initial USER and NICK pair was already received.
+        if (!self.joined and self.nickname_end != 0)
+            try self._join();
+    }
+
+    /// Process the NICK command.
+    /// Parameters: <nickname>
+    fn _processCommand_NICK(self: *Client, lexer: *Lexer) !void {
+        const nickname = self._acceptParamMax(lexer, "<nickname>", self.nickname.len)
+            catch |err| {
+                if (err == error.NeedsMoreParams) {
+                    return error.NoNickNameGiven;
+                } else
+                    return err;
+            };
+        mem.copy(u8, self.nickname[0..], nickname);
+        self.nickname_end = nickname.len;
+
+        // TODO
+        // ERR_ERRONEUSNICKNAME
+        // ERR_NICKNAMEINUSE
+
+        // TODO Check there no more unexpected parameters.
+
+        // Complete the join if the initial USER and NICK pair was already received.
+        if (!self.joined and self.realname_end != 0)
+            try self._join();
+    }
+
+    /// Complete the client join after the initial USER and NICK pair is received.
+    fn _join(self: *Client) !void {
+        assert(!self.joined);
+        assert(self.realname_end != 0);
+        assert(self.nickname_end != 0);
+
+        // TODO Get the IP address by referencing the server struct.
+        // TODO RPL_LUSERCLIENT
+        const nickname = self._getNickName();
+        try self._sendMessage(":{} 251 {} :There are {} users and 0 invisible on 1 servers", bind_ip4_addr, nickname, i32(1));
+        // TODO Send motd.
+        try self._sendMessage(":irczt-connect PRIVMSG {} :Hello", nickname);
+        self.joined = true;
+    }
+
+    /// Send a message to the client.
+    fn _sendMessage(self: *Client, comptime fmt: []const u8, args: ...) !void {
+        self._info("> " ++ fmt ++ "\n", args);
+        try self.write_stream.?.print(fmt ++ "\r\n", args);
     }
 
     /// Process a single message from a client.
@@ -246,10 +350,13 @@ const Client = struct {
         var res: anyerror!void = {};
         if (mem.eql(u8, command, "USER")) {
             res = self._processCommand_USER(&lexer);
+        } else if (mem.eql(u8, command, "NICK")) {
+            res = self._processCommand_NICK(&lexer);
         } else
             self._warn("Unrecognized command: {}\n", command);
 
         if (res) {} else |err| {
+            self._warn("Error: {}!\n", command);
             // TODO
         }
     }
