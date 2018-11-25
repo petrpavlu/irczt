@@ -14,6 +14,10 @@ const Allocator = std.mem.Allocator;
 const LinkedList = std.LinkedList;
 const assert = std.debug.assert;
 
+// TODO Add a format wrapper to escape non-printable characters in received commands.
+// TODO Prefix "protected/private" variables with an underscore.
+// TODO Wrap the server in a struct.
+
 const bind_ip4_addr = "127.0.0.1";
 const bind_port: u16 = 6667;
 
@@ -364,6 +368,7 @@ const Client = struct {
     fn processInput(self: *Client) !void {
         assert(self.input_received < self.input_buffer.len);
         var pos = self.input_received;
+        // TODO Use io.InStream.
         const read = try os.posixRead(self.fd, self.input_buffer[pos..]);
         if (read == 0) {
             // TODO read = 0 -> EOF. Report any unhandled data.
