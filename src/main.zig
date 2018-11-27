@@ -16,6 +16,8 @@ const assert = std.debug.assert;
 
 // TODO Add a format wrapper to escape non-printable characters in received commands.
 // TODO Prefix "protected/private" variables with an underscore.
+// TODO Replace create() with createOne().
+// TODO Use full std. prefix to avoid name clashes.
 
 const bind_ip4_addr = "127.0.0.1";
 const bind_port: u16 = 6667;
@@ -185,6 +187,7 @@ const Client = struct {
 
     /// Accept a new client connection and allocate client data.
     fn accept(listenfd: i32, allocator: *Allocator) !*Client {
+        // TODO Move the accept in the server.
         var sockaddr: posix.sockaddr = undefined;
         const clientfd = os.posixAccept(listenfd, &sockaddr, posix.SOCK_CLOEXEC) catch |err| {
             warn("Failed to accept a new client connection: {}.\n", @errorName(err));
