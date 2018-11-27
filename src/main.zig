@@ -16,7 +16,6 @@ const assert = std.debug.assert;
 
 // TODO Add a format wrapper to escape non-printable characters in received commands.
 // TODO Prefix "protected/private" variables with an underscore.
-// TODO Wrap the server in a struct.
 
 const bind_ip4_addr = "127.0.0.1";
 const bind_port: u16 = 6667;
@@ -432,87 +431,163 @@ const Client = struct {
 
 const ClientList = LinkedList(Client);
 
+const Server = struct {
+    allocator: *Allocator,
+
+    sock_addr: net.Address,
+    host: []const u8,
+    port: []const u8,
+
+    clients: ClientList,
+
+    fn create(address: []const u8, allocator: *Allocator) !*Server {
+        // Parse the address.
+        var host_end: usize = address.len;
+        var port_start: usize = address.len;
+        for (address) |char, i| {
+            if (char == ':') {
+                host_end = i;
+                port_start = i + 1;
+                break;
+            }
+        }
+
+        const host = address[0..host_end];
+        const port = address[port_start..address.len];
+
+        const parsed_host = net.parseIp4(host) catch |err| {
+            warn("Failed to parse IP address '{}': {}.\n", host, @errorName(err));
+            return err;
+        };
+        const parsed_port = std.fmt.parseUnsigned(u16, port, 10) catch |err| {
+            warn("Failed to parse port number '{}': {}.\n", port, @errorName(err));
+            return err;
+        };
+
+        // Make a copy of the host and port strings.
+        const host_copy = allocator.alloc(u8, host.len) catch |err| {
+            warn("Failed to allocate a host string buffer: {}.\n", @errorName(err));
+            return err;
+        };
+        errdefer allocator.free(host_copy);
+        mem.copy(u8, host_copy, host);
+
+        const port_copy = allocator.alloc(u8, port.len) catch |err| {
+            warn("Failed to allocate a port string buffer: {}.\n", @errorName(err));
+            return err;
+        };
+        errdefer allocator.free(port_copy);
+        mem.copy(u8, port_copy, port);
+
+        // Allocate the server struct.
+        const server = allocator.createOne(Server) catch |err| {
+            warn("Failed to allocate a server instance: {}.\n", @errorName(err));
+            return err;
+        };
+        server.* = Server{
+            .allocator = allocator,
+            .sock_addr = net.Address.initIp4(parsed_host, parsed_port),
+            .host = host_copy,
+            .port = port_copy,
+            .clients = ClientList.init(),
+        };
+        return server;
+    }
+
+    fn destroy(self: *Server) void {
+        self.allocator.free(self.host);
+        self.allocator.free(self.port);
+        self.allocator.destroy(self);
+    }
+
+    fn run(self: *Server) !void {
+        // Create the server socket.
+        const listenfd = os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC, posix.PROTO_tcp) catch |err| {
+            warn("Failed to create a server socket: {}.\n", @errorName(err));
+            return err;
+        };
+        defer os.close(listenfd);
+
+        os.posixBind(listenfd, &self.sock_addr.os_addr) catch |err| {
+            warn("Failed to bind to address {}:{}: {}.\n", self.host, self.port, @errorName(err));
+            return err;
+        };
+
+        os.posixListen(listenfd, posix.SOMAXCONN) catch |err| {
+            warn("Failed to listen on {}:{}: {}.\n", self.host, self.port, @errorName(err));
+            return err;
+        };
+
+        // Create an epoll instance and register the server socket with it.
+        const epfd = os.linuxEpollCreate(posix.EPOLL_CLOEXEC) catch |err| {
+            warn("Failed to create an epoll instance: {}.\n", @errorName(err));
+            return err;
+        };
+        defer os.close(epfd);
+
+        var listenfd_event = posix.epoll_event{
+            .events = posix.EPOLLIN,
+            .data = posix.epoll_data{ .ptr = 0 },
+        };
+        os.linuxEpollCtl(epfd, posix.EPOLL_CTL_ADD, listenfd, &listenfd_event) catch |err| {
+            warn("Failed to add the server socket to the epoll instance: {}.\n", @errorName(err));
+            return err;
+        };
+
+        // Destroy at the end all clients that will be created.
+        defer {
+            while (self.clients.pop()) |client_node| {
+                // Destroy the client and its LinkedList node.
+                client_node.data.destroy();
+            }
+        }
+
+        // Listen for events.
+        info("Listening on {}:{}.\n", self.host, self.port);
+        while (true) {
+            var events: [1]posix.epoll_event = undefined;
+            const ep = os.linuxEpollWait(epfd, events[0..], -1);
+            if (ep == 0)
+                continue;
+
+            // Check for a new connection and accept it.
+            if (events[0].data.ptr == 0) {
+                const client = Client.accept(listenfd, self.allocator) catch continue;
+
+                // Listen for the client.
+                var clientfd = client.fd;
+                // FIXME .events
+                var clientfd_event = posix.epoll_event{
+                    .events = posix.EPOLLIN,
+                    .data = posix.epoll_data{ .ptr = @ptrToInt(client) },
+                };
+                os.linuxEpollCtl(epfd, posix.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
+                    warn("Failed to add a client socket to the epoll instance: {}.\n", @errorName(err));
+                    client.destroy();
+                    continue;
+                };
+
+                self.clients.append(client.parent.?);
+            } else {
+                const client = @intToPtr(*Client, events[0].data.ptr);
+                // TODO
+                try client.processInput();
+            }
+        }
+    }
+};
+
 pub fn main() u8 {
     // Initialize stdout and stderr streams.
     initOutput();
 
-    // Create the server socket.
-    const listenfd = os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC, posix.PROTO_tcp) catch |err| {
-        warn("Failed to create a server socket: {}.\n", @errorName(err));
-        return 1;
-    };
-    defer os.close(listenfd);
+    // Get an allocator.
+    const allocator = std.heap.c_allocator;
 
-    const parsed_addr = net.parseIp4(bind_ip4_addr) catch unreachable;
-    const addr = net.Address.initIp4(parsed_addr, bind_port);
-    os.posixBind(listenfd, &addr.os_addr) catch |err| {
-        warn("Failed to bind to address {}:{}: {}.\n", bind_ip4_addr, bind_port, @errorName(err));
-        return 1;
-    };
-
-    os.posixListen(listenfd, posix.SOMAXCONN) catch |err| {
-        warn("Failed to listen on {}:{}: {}.\n", bind_ip4_addr, bind_port, @errorName(err));
-        return 1;
-    };
-
-    // Create an epoll instance and register the server socket with it.
-    const epfd = os.linuxEpollCreate(posix.EPOLL_CLOEXEC) catch |err| {
-        warn("Failed to create an epoll instance: {}.\n", @errorName(err));
-        return 1;
-    };
-    defer os.close(epfd);
-
-    var listenfd_event = posix.epoll_event{
-        .events = posix.EPOLLIN,
-        .data = posix.epoll_data{ .ptr = 0 },
-    };
-    os.linuxEpollCtl(epfd, posix.EPOLL_CTL_ADD, listenfd, &listenfd_event) catch |err| {
-        warn("Failed to add the server socket to the epoll instance: {}.\n", @errorName(err));
-        return 1;
-    };
-
-    // Create a list of clients.
-    var allocator = std.heap.c_allocator;
-    var clients = ClientList.init();
-    defer {
-        while (clients.pop()) |client_node| {
-            // Destroy the client and its LinkedList node.
-            client_node.data.destroy();
-        }
-    }
-
-    // Listen for events.
-    info("Listening on {}:{}.\n", bind_ip4_addr, bind_port);
-    while (true) {
-        var events: [1]posix.epoll_event = undefined;
-        const ep = os.linuxEpollWait(epfd, events[0..], -1);
-        if (ep == 0)
-            continue;
-
-        // Check for a new connection and accept it.
-        if (events[0].data.ptr == 0) {
-            const client = Client.accept(listenfd, allocator) catch continue;
-
-            // Listen for the client.
-            var clientfd = client.fd;
-            // FIXME .events
-            var clientfd_event = posix.epoll_event{
-                .events = posix.EPOLLIN,
-                .data = posix.epoll_data{ .ptr = @ptrToInt(client) },
-            };
-            os.linuxEpollCtl(epfd, posix.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
-                warn("Failed to add a client socket to the epoll instance: {}.\n", @errorName(err));
-                client.destroy();
-                continue;
-            };
-
-            clients.append(client.parent.?);
-        } else {
-            const client = @intToPtr(*Client, events[0].data.ptr);
-            // TODO
-            client.processInput() catch return 1;
-        }
-    }
+    // Create and run the server.
+    const server = Server.create("127.0.0.1:6667", allocator) catch return 1;
+    defer server.destroy();
+    server.run() catch return 1;
 
     return 0;
 }
