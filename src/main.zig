@@ -113,6 +113,49 @@ fn warn(comptime fmt: []const u8, args: ...) void {
     stderr_stream.?.print("\x1b[31m{} " ++ fmt ++ "\x1b[0m", timestamp, args) catch return;
 }
 
+/// Thin wrapper around net.Address to provide integration with std.fmt.
+const NetAddress = struct {
+    // TODO Replace NetAddress with the plain net.Address when it gains proper support for std.fmt.
+    addr: net.Address,
+
+    fn formatU16(output: []u8, value: u16) []const u8 {
+        assert(output.len >= 5);
+
+        var rem = value;
+        var i = output.len;
+        while (rem > 0 or i == output.len) {
+            i -= 1;
+            output[i] = '0' + @intCast(u8, rem % 10);
+            rem /= 10;
+        }
+        return output[i..];
+    }
+
+    fn format(
+        self: NetAddress,
+        comptime fmt: []const u8,
+        context: var,
+        comptime FmtError: type,
+        output: fn (@typeOf(context), []const u8) FmtError!void,
+    ) FmtError!void {
+        assert(self.addr.os_addr.in.family == posix.AF_INET);
+
+        const native_endian_port = std.mem.endianSwapIfLe(u16, self.addr.os_addr.in.port);
+        const bytes = @sliceToBytes((*[1]u32)(&self.addr.os_addr.in.addr)[0..]);
+
+        var tmp: [5]u8 = undefined;
+        try output(context, formatU16(tmp[0..], bytes[0]));
+        try output(context, ".");
+        try output(context, formatU16(tmp[0..], bytes[1]));
+        try output(context, ".");
+        try output(context, formatU16(tmp[0..], bytes[2]));
+        try output(context, ".");
+        try output(context, formatU16(tmp[0..], bytes[3]));
+        try output(context, ":");
+        return output(context, formatU16(tmp[0..], native_endian_port));
+    }
+};
+
 const Lexer = struct {
     message: []const u8,
     pos: usize,
@@ -159,7 +202,7 @@ const Client = struct {
     parent: ?*ClientList.Node,
     allocator: *Allocator,
     fd: i32,
-    addr: net.Address,
+    addr: NetAddress,
 
     write_file_out_stream: os.File.OutStream,
     write_stream: ?*io.OutStream(os.File.WriteError),
@@ -194,10 +237,9 @@ const Client = struct {
             return err;
         };
 
-        // TODO Output client address.
-        info("Accepted a new client connection.\n");
+        const addr = NetAddress{ .addr = net.Address.initPosix(sockaddr) };
+        info("{}: Accepted a new client connection.\n", addr);
 
-        const addr = net.Address.initPosix(sockaddr);
         const init_node = ClientList.Node.init(Client{
             .parent = null,
             .allocator = allocator,
@@ -215,8 +257,7 @@ const Client = struct {
             .nickname_end = 0,
         });
         const dyn_node = allocator.create(init_node) catch |err| {
-            // TODO Output client address.
-            warn("Failed to allocate a client node: {}.\n", @errorName(err));
+            warn("{}: Failed to allocate a client node: {}.\n", addr, @errorName(err));
             return err;
         };
         dyn_node.data.parent = dyn_node;
@@ -227,8 +268,7 @@ const Client = struct {
     /// Close connection to a client and destroy the client data.
     fn destroy(self: *Client) void {
         os.close(self.fd);
-        // TODO Output client address.
-        self._info("Closed a client connection.\n");
+        self._info("Closed the client connection.\n");
         self.allocator.destroy(self.parent);
     }
 
@@ -243,15 +283,11 @@ const Client = struct {
     }
 
     fn _info(self: *Client, comptime fmt: []const u8, args: ...) void {
-        // TODO Improve the client identification.
-        const clientid = self.fd;
-        info("{}: " ++ fmt, clientid, args);
+        info("{}: " ++ fmt, self.addr, args);
     }
 
     fn _warn(self: *Client, comptime fmt: []const u8, args: ...) void {
-        // TODO Improve the client identification.
-        const clientid = self.fd;
-        warn("{}: " ++ fmt, clientid, args);
+        warn("{}: " ++ fmt, self.addr, args);
     }
 
     fn _acceptParamMax(self: *Client, lexer: *Lexer, param: []const u8, maxlen: usize) ![]const u8 {
