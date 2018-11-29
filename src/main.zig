@@ -116,9 +116,7 @@ const NetAddress = struct {
     // TODO Replace NetAddress with the plain net.Address when it gains proper support for std.fmt.
     addr: net.Address,
 
-    fn formatU16(output: []u8, value: u16) []const u8 {
-        assert(output.len >= 5);
-
+    fn formatU16(output: *[5]u8, value: u16) []const u8 {
         var rem = value;
         var i = output.len;
         while (rem > 0 or i == output.len) {
@@ -142,15 +140,15 @@ const NetAddress = struct {
         const bytes = @sliceToBytes((*[1]u32)(&self.addr.os_addr.in.addr)[0..]);
 
         var tmp: [5]u8 = undefined;
-        try output(context, formatU16(tmp[0..], bytes[0]));
+        try output(context, formatU16(&tmp, bytes[0]));
         try output(context, ".");
-        try output(context, formatU16(tmp[0..], bytes[1]));
+        try output(context, formatU16(&tmp, bytes[1]));
         try output(context, ".");
-        try output(context, formatU16(tmp[0..], bytes[2]));
+        try output(context, formatU16(&tmp, bytes[2]));
         try output(context, ".");
-        try output(context, formatU16(tmp[0..], bytes[3]));
+        try output(context, formatU16(&tmp, bytes[3]));
         try output(context, ":");
-        return output(context, formatU16(tmp[0..], native_endian_port));
+        return output(context, formatU16(&tmp, native_endian_port));
     }
 };
 
