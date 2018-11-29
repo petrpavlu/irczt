@@ -25,9 +25,7 @@ const bind_port: u16 = 6667;
 const timestamp_str_width = "[18446744073709551.615]".len;
 
 /// Convert a timestamp to a string.
-fn formatTimeStamp(output: []u8, milliseconds: u64) void {
-    assert(output.len >= timestamp_str_width);
-
+fn formatTimeStamp(output: *[timestamp_str_width]u8, milliseconds: u64) void {
     var rem = milliseconds;
     var i = timestamp_str_width;
     while (i > 0) : (i -= 1) {
@@ -52,25 +50,25 @@ fn formatTimeStamp(output: []u8, milliseconds: u64) void {
 test "format timestamp" {
     var buffer: [timestamp_str_width]u8 = undefined;
 
-    formatTimeStamp(buffer[0..], 0);
+    formatTimeStamp(&buffer, 0);
     assert(mem.eql(u8, buffer, "[                0.000]"));
 
-    formatTimeStamp(buffer[0..], 1);
+    formatTimeStamp(&buffer, 1);
     assert(mem.eql(u8, buffer, "[                0.001]"));
 
-    formatTimeStamp(buffer[0..], 100);
+    formatTimeStamp(&buffer, 100);
     assert(mem.eql(u8, buffer, "[                0.100]"));
 
-    formatTimeStamp(buffer[0..], 1000);
+    formatTimeStamp(&buffer, 1000);
     assert(mem.eql(u8, buffer, "[                1.000]"));
 
-    formatTimeStamp(buffer[0..], 10000);
+    formatTimeStamp(&buffer, 10000);
     assert(mem.eql(u8, buffer, "[               10.000]"));
 
-    formatTimeStamp(buffer[0..], 1234567890);
+    formatTimeStamp(&buffer, 1234567890);
     assert(mem.eql(u8, buffer, "[          1234567.890]"));
 
-    formatTimeStamp(buffer[0..], 18446744073709551615);
+    formatTimeStamp(&buffer, 18446744073709551615);
     assert(mem.eql(u8, buffer, "[18446744073709551.615]"));
 }
 
@@ -101,7 +99,7 @@ fn initOutput() void {
 fn info(comptime fmt: []const u8, args: ...) void {
     assert(stdout_stream != null);
     var timestamp: [timestamp_str_width]u8 = undefined;
-    formatTimeStamp(timestamp[0..], time.milliTimestamp());
+    formatTimeStamp(&timestamp, time.milliTimestamp());
     stdout_stream.?.print("{} " ++ fmt, timestamp, args) catch return;
 }
 
@@ -109,7 +107,7 @@ fn info(comptime fmt: []const u8, args: ...) void {
 fn warn(comptime fmt: []const u8, args: ...) void {
     assert(stderr_stream != null);
     var timestamp: [timestamp_str_width]u8 = undefined;
-    formatTimeStamp(timestamp[0..], time.milliTimestamp());
+    formatTimeStamp(&timestamp, time.milliTimestamp());
     stderr_stream.?.print("\x1b[31m{} " ++ fmt ++ "\x1b[0m", timestamp, args) catch return;
 }
 
