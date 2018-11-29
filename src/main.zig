@@ -358,8 +358,7 @@ const Client = struct {
         // TODO Get the IP address by referencing the server struct.
         // TODO RPL_LUSERCLIENT
         const nickname = self._getNickName();
-        try self._sendMessage(":{} 251 {} :There are {} users and 0 invisible on 1 servers",
-                self._server.getHostName(), nickname, i32(1));
+        try self._sendMessage(":{} 251 {} :There are {} users and 0 invisible on 1 servers", self._server.getHostName(), nickname, i32(1));
         // TODO Send motd.
         try self._sendMessage(":irczt-connect PRIVMSG {} :Hello", nickname);
         self._joined = true;
