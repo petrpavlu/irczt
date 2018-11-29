@@ -192,7 +192,7 @@ const Lexer = struct {
 };
 
 const Client = struct {
-    parent: ?*ClientList.Node,
+    parent: *ClientList.Node,
     server: *Server,
     allocator: *Allocator,
     fd: i32,
@@ -231,7 +231,7 @@ const Client = struct {
         info("{}: Accepted a new client connection.\n", addr);
 
         const init_node = ClientList.Node.init(Client{
-            .parent = null,
+            .parent = undefined,
             .server = server,
             .allocator = allocator,
             .fd = fd,
@@ -605,7 +605,7 @@ const Server = struct {
                     continue;
                 };
 
-                self.clients.append(client.parent.?);
+                self.clients.append(client.parent);
             } else {
                 const client = @intToPtr(*Client, events[0].data.ptr);
                 // TODO
