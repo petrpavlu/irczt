@@ -7,8 +7,6 @@ const math = std.math;
 const mem = std.mem;
 const net = std.net;
 const os = std.os;
-const posix = std.os.posix;
-const time = std.os.time;
 
 const Allocator = std.mem.Allocator;
 const LinkedList = std.LinkedList;
@@ -16,7 +14,6 @@ const assert = std.debug.assert;
 
 // TODO Add a format wrapper to escape non-printable characters in received commands.
 // TODO Prefix "protected/private" variables with an underscore.
-// TODO Use full std. prefix to avoid name clashes.
 
 const timestamp_str_width = "[18446744073709551.615]".len;
 
@@ -95,7 +92,7 @@ fn initOutput() void {
 fn info(comptime fmt: []const u8, args: ...) void {
     assert(stdout_stream != null);
     var timestamp: [timestamp_str_width]u8 = undefined;
-    formatTimeStamp(&timestamp, time.milliTimestamp());
+    formatTimeStamp(&timestamp, os.time.milliTimestamp());
     stdout_stream.?.print("{} " ++ fmt, timestamp, args) catch return;
 }
 
@@ -103,7 +100,7 @@ fn info(comptime fmt: []const u8, args: ...) void {
 fn warn(comptime fmt: []const u8, args: ...) void {
     assert(stderr_stream != null);
     var timestamp: [timestamp_str_width]u8 = undefined;
-    formatTimeStamp(&timestamp, time.milliTimestamp());
+    formatTimeStamp(&timestamp, os.time.milliTimestamp());
     stderr_stream.?.print("\x1b[31m{} " ++ fmt ++ "\x1b[0m", timestamp, args) catch return;
 }
 
@@ -130,9 +127,9 @@ const NetAddress = struct {
         comptime FmtError: type,
         output: fn (@typeOf(context), []const u8) FmtError!void,
     ) FmtError!void {
-        assert(self.addr.os_addr.in.family == posix.AF_INET);
+        assert(self.addr.os_addr.in.family == os.posix.AF_INET);
 
-        const native_endian_port = std.mem.endianSwapIfLe(u16, self.addr.os_addr.in.port);
+        const native_endian_port = mem.endianSwapIfLe(u16, self.addr.os_addr.in.port);
         const bytes = @sliceToBytes((*[1]u32)(&self.addr.os_addr.in.addr)[0..]);
 
         var tmp: [5]u8 = undefined;
@@ -223,7 +220,7 @@ const Client = struct {
 
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
     /// constructing the client fails, the file descriptor gets closed.
-    fn create(fd: i32, sockaddr: posix.sockaddr, server: *Server, allocator: *Allocator) !*Client {
+    fn create(fd: i32, sockaddr: os.posix.sockaddr, server: *Server, allocator: *Allocator) !*Client {
         errdefer os.close(fd);
 
         const addr = NetAddress{ .addr = net.Address.initPosix(sockaddr) };
@@ -530,7 +527,7 @@ const Server = struct {
 
     fn run(self: *Server) !void {
         // Create the server socket.
-        const listenfd = os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC, posix.PROTO_tcp) catch |err| {
+        const listenfd = os.posixSocket(os.posix.AF_INET, os.posix.SOCK_STREAM | os.posix.SOCK_CLOEXEC, os.posix.PROTO_tcp) catch |err| {
             warn("Failed to create a server socket: {}.\n", @errorName(err));
             return err;
         };
@@ -541,23 +538,23 @@ const Server = struct {
             return err;
         };
 
-        os.posixListen(listenfd, posix.SOMAXCONN) catch |err| {
+        os.posixListen(listenfd, os.posix.SOMAXCONN) catch |err| {
             warn("Failed to listen on {}:{}: {}.\n", self.host, self.port, @errorName(err));
             return err;
         };
 
         // Create an epoll instance and register the server socket with it.
-        const epfd = os.linuxEpollCreate(posix.EPOLL_CLOEXEC) catch |err| {
+        const epfd = os.linuxEpollCreate(os.posix.EPOLL_CLOEXEC) catch |err| {
             warn("Failed to create an epoll instance: {}.\n", @errorName(err));
             return err;
         };
         defer os.close(epfd);
 
-        var listenfd_event = posix.epoll_event{
-            .events = posix.EPOLLIN,
-            .data = posix.epoll_data{ .ptr = 0 },
+        var listenfd_event = os.posix.epoll_event{
+            .events = os.posix.EPOLLIN,
+            .data = os.posix.epoll_data{ .ptr = 0 },
         };
-        os.linuxEpollCtl(epfd, posix.EPOLL_CTL_ADD, listenfd, &listenfd_event) catch |err| {
+        os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, listenfd, &listenfd_event) catch |err| {
             warn("Failed to add the server socket to the epoll instance: {}.\n", @errorName(err));
             return err;
         };
@@ -573,15 +570,15 @@ const Server = struct {
         // Listen for events.
         info("Listening on {}:{}.\n", self.host, self.port);
         while (true) {
-            var events: [1]posix.epoll_event = undefined;
+            var events: [1]os.posix.epoll_event = undefined;
             const ep = os.linuxEpollWait(epfd, events[0..], -1);
             if (ep == 0)
                 continue;
 
             // Check for a new connection and accept it.
             if (events[0].data.ptr == 0) {
-                var client_sockaddr: posix.sockaddr = undefined;
-                const clientfd = os.posixAccept(listenfd, &client_sockaddr, posix.SOCK_CLOEXEC) catch |err| {
+                var client_sockaddr: os.posix.sockaddr = undefined;
+                const clientfd = os.posixAccept(listenfd, &client_sockaddr, os.posix.SOCK_CLOEXEC) catch |err| {
                     warn("Failed to accept a new client connection: {}.\n", @errorName(err));
                     continue;
                 };
@@ -592,11 +589,11 @@ const Server = struct {
 
                 // Listen for the client.
                 // FIXME .events
-                var clientfd_event = posix.epoll_event{
-                    .events = posix.EPOLLIN,
-                    .data = posix.epoll_data{ .ptr = @ptrToInt(client) },
+                var clientfd_event = os.posix.epoll_event{
+                    .events = os.posix.EPOLLIN,
+                    .data = os.posix.epoll_data{ .ptr = @ptrToInt(client) },
                 };
-                os.linuxEpollCtl(epfd, posix.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
+                os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
                     warn("Failed to add a client socket to the epoll instance: {}.\n", @errorName(err));
                     client.destroy();
                     continue;
