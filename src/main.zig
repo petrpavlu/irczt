@@ -228,14 +228,10 @@ const Client = struct {
     nickname: NickNameType,
     nickname_end: usize,
 
-    /// Accept a new client connection and allocate client data.
-    fn accept(listenfd: i32, allocator: *Allocator) !*Client {
-        // TODO Move the accept in the server.
-        var sockaddr: posix.sockaddr = undefined;
-        const clientfd = os.posixAccept(listenfd, &sockaddr, posix.SOCK_CLOEXEC) catch |err| {
-            warn("Failed to accept a new client connection: {}.\n", @errorName(err));
-            return err;
-        };
+    /// Create a new client instance, which takes ownership for the passed client descriptor. If
+    /// constructing the client fails, the file descriptor gets closed.
+    fn create(fd: i32, sockaddr: posix.sockaddr, allocator: *Allocator) !*Client {
+        errdefer os.close(fd);
 
         const addr = NetAddress{ .addr = net.Address.initPosix(sockaddr) };
         info("{}: Accepted a new client connection.\n", addr);
@@ -243,9 +239,9 @@ const Client = struct {
         const init_node = ClientList.Node.init(Client{
             .parent = null,
             .allocator = allocator,
-            .fd = clientfd,
+            .fd = fd,
             .addr = addr,
-            .write_file_out_stream = os.File.openHandle(clientfd).outStream(),
+            .write_file_out_stream = os.File.openHandle(fd).outStream(),
             .write_stream = null,
             .input_state = Client.InputState.Normal,
             .input_buffer = undefined,
@@ -473,7 +469,7 @@ const ClientList = LinkedList(Client);
 const Server = struct {
     allocator: *Allocator,
 
-    sock_addr: net.Address,
+    sockaddr: net.Address,
     host: []const u8,
     port: []const u8,
 
@@ -525,7 +521,7 @@ const Server = struct {
         };
         server.* = Server{
             .allocator = allocator,
-            .sock_addr = net.Address.initIp4(parsed_host, parsed_port),
+            .sockaddr = net.Address.initIp4(parsed_host, parsed_port),
             .host = host_copy,
             .port = port_copy,
             .clients = ClientList.init(),
@@ -547,7 +543,7 @@ const Server = struct {
         };
         defer os.close(listenfd);
 
-        os.posixBind(listenfd, &self.sock_addr.os_addr) catch |err| {
+        os.posixBind(listenfd, &self.sockaddr.os_addr) catch |err| {
             warn("Failed to bind to address {}:{}: {}.\n", self.host, self.port, @errorName(err));
             return err;
         };
@@ -591,10 +587,17 @@ const Server = struct {
 
             // Check for a new connection and accept it.
             if (events[0].data.ptr == 0) {
-                const client = Client.accept(listenfd, self.allocator) catch continue;
+                var client_sockaddr: posix.sockaddr = undefined;
+                const clientfd = os.posixAccept(listenfd, &client_sockaddr, posix.SOCK_CLOEXEC) catch |err| {
+                    warn("Failed to accept a new client connection: {}.\n", @errorName(err));
+                    continue;
+                };
+
+                // Create a new client. This transfers ownership of the clientfd to the Client
+                // instance.
+                const client = Client.create(clientfd, client_sockaddr, self.allocator) catch continue;
 
                 // Listen for the client.
-                var clientfd = client.fd;
                 // FIXME .events
                 var clientfd_event = posix.epoll_event{
                     .events = posix.EPOLLIN,
