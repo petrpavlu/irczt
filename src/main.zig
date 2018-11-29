@@ -19,9 +19,6 @@ const assert = std.debug.assert;
 // TODO Replace create() with createOne().
 // TODO Use full std. prefix to avoid name clashes.
 
-const bind_ip4_addr = "127.0.0.1";
-const bind_port: u16 = 6667;
-
 const timestamp_str_width = "[18446744073709551.615]".len;
 
 /// Convert a timestamp to a string.
@@ -196,6 +193,7 @@ const Lexer = struct {
 
 const Client = struct {
     parent: ?*ClientList.Node,
+    server: *Server,
     allocator: *Allocator,
     fd: i32,
     addr: NetAddress,
@@ -226,7 +224,7 @@ const Client = struct {
 
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
     /// constructing the client fails, the file descriptor gets closed.
-    fn create(fd: i32, sockaddr: posix.sockaddr, allocator: *Allocator) !*Client {
+    fn create(fd: i32, sockaddr: posix.sockaddr, server: *Server, allocator: *Allocator) !*Client {
         errdefer os.close(fd);
 
         const addr = NetAddress{ .addr = net.Address.initPosix(sockaddr) };
@@ -234,6 +232,7 @@ const Client = struct {
 
         const init_node = ClientList.Node.init(Client{
             .parent = null,
+            .server = server,
             .allocator = allocator,
             .fd = fd,
             .addr = addr,
@@ -354,7 +353,8 @@ const Client = struct {
         // TODO Get the IP address by referencing the server struct.
         // TODO RPL_LUSERCLIENT
         const nickname = self._getNickName();
-        try self._sendMessage(":{} 251 {} :There are {} users and 0 invisible on 1 servers", bind_ip4_addr, nickname, i32(1));
+        try self._sendMessage(":{} 251 {} :There are {} users and 0 invisible on 1 servers",
+                self.server.getHostName(), nickname, i32(1));
         // TODO Send motd.
         try self._sendMessage(":irczt-connect PRIVMSG {} :Hello", nickname);
         self.joined = true;
@@ -591,7 +591,7 @@ const Server = struct {
 
                 // Create a new client. This transfers ownership of the clientfd to the Client
                 // instance.
-                const client = Client.create(clientfd, client_sockaddr, self.allocator) catch continue;
+                const client = Client.create(clientfd, client_sockaddr, self, self.allocator) catch continue;
 
                 // Listen for the client.
                 // FIXME .events
@@ -612,6 +612,10 @@ const Server = struct {
                 try client.processInput();
             }
         }
+    }
+
+    fn getHostName(self: *Server) []const u8 {
+        return self.host;
     }
 };
 
