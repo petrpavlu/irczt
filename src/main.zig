@@ -16,7 +16,6 @@ const assert = std.debug.assert;
 
 // TODO Add a format wrapper to escape non-printable characters in received commands.
 // TODO Prefix "protected/private" variables with an underscore.
-// TODO Replace create() with createOne().
 // TODO Use full std. prefix to avoid name clashes.
 
 const timestamp_str_width = "[18446744073709551.615]".len;
@@ -230,14 +229,18 @@ const Client = struct {
         const addr = NetAddress{ .addr = net.Address.initPosix(sockaddr) };
         info("{}: Accepted a new client connection.\n", addr);
 
-        const init_node = ClientList.Node.init(Client{
-            .parent = undefined,
+        const client_node = allocator.createOne(ClientList.Node) catch |err| {
+            warn("{}: Failed to allocate a client node: {}.\n", addr, @errorName(err));
+            return err;
+        };
+        client_node.* = ClientList.Node.init(Client{
+            .parent = client_node,
             .server = server,
             .allocator = allocator,
             .fd = fd,
             .addr = addr,
             .write_file_out_stream = os.File.openHandle(fd).outStream(),
-            .write_stream = null,
+            .write_stream = &client_node.data.write_file_out_stream.stream,
             .input_state = Client.InputState.Normal,
             .input_buffer = undefined,
             .input_received = 0,
@@ -247,13 +250,7 @@ const Client = struct {
             .nickname = []u8{0} ** Client.NickNameType.len,
             .nickname_end = 0,
         });
-        const dyn_node = allocator.create(init_node) catch |err| {
-            warn("{}: Failed to allocate a client node: {}.\n", addr, @errorName(err));
-            return err;
-        };
-        dyn_node.data.parent = dyn_node;
-        dyn_node.data.write_stream = &dyn_node.data.write_file_out_stream.stream;
-        return &dyn_node.data;
+        return &client_node.data;
     }
 
     /// Close connection to a client and destroy the client data.
