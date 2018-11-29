@@ -13,7 +13,6 @@ const LinkedList = std.LinkedList;
 const assert = std.debug.assert;
 
 // TODO Add a format wrapper to escape non-printable characters in received commands.
-// TODO Prefix "protected/private" variables with an underscore.
 
 const timestamp_str_width = "[18446744073709551.615]".len;
 
@@ -146,26 +145,33 @@ const NetAddress = struct {
 };
 
 const Lexer = struct {
-    message: []const u8,
-    pos: usize,
+    _message: []const u8,
+    _pos: usize,
+
+    fn init(message: []const u8) Lexer {
+        return Lexer{
+            ._message = message,
+            ._pos = 0,
+        };
+    }
 
     fn getCurPos(self: *Lexer) usize {
-        return self.pos;
+        return self._pos;
     }
 
     fn getCurChar(self: *Lexer) u8 {
-        if (self.pos < self.message.len)
-            return self.message[self.pos];
+        if (self._pos < self._message.len)
+            return self._message[self._pos];
         return 0;
     }
 
     fn nextChar(self: *Lexer) void {
-        if (self.pos < self.message.len)
-            self.pos += 1;
+        if (self._pos < self._message.len)
+            self._pos += 1;
     }
 
     fn getWord(self: *Lexer) []const u8 {
-        const begin = self.pos;
+        const begin = self._pos;
 
         var end = begin;
         while (self.getCurChar() != '\x00' and self.getCurChar() != ' ') : (end += 1)
@@ -174,28 +180,28 @@ const Lexer = struct {
         while (self.getCurChar() == ' ')
             self.nextChar();
 
-        return self.message[begin..end];
+        return self._message[begin..end];
     }
 
     fn getParam(self: *Lexer) []const u8 {
         if (self.getCurChar() == ':') {
-            const begin = self.pos + 1;
-            self.pos = self.message.len;
-            return self.message[begin..self.pos];
+            const begin = self._pos + 1;
+            self._pos = self._message.len;
+            return self._message[begin..self._pos];
         }
         return self.getWord();
     }
 };
 
 const Client = struct {
-    parent: *ClientList.Node,
-    server: *Server,
-    allocator: *Allocator,
-    fd: i32,
-    addr: NetAddress,
+    _parent: *ClientList.Node,
+    _server: *Server,
+    _allocator: *Allocator,
+    _fd: i32,
+    _addr: NetAddress,
 
-    write_file_out_stream: os.File.OutStream,
-    write_stream: ?*io.OutStream(os.File.WriteError),
+    _write_file_out_stream: os.File.OutStream,
+    _write_stream: ?*io.OutStream(os.File.WriteError),
 
     const InputState = enum {
         Normal,
@@ -203,20 +209,20 @@ const Client = struct {
         Invalid,
         Invalid_CR,
     };
-    input_state: InputState,
-    input_buffer: [512]u8,
-    input_received: usize,
+    _input_state: InputState,
+    _input_buffer: [512]u8,
+    _input_received: usize,
 
     /// Flag indicating whether the initial USER and NICK pair was already received and the client
     /// is fully joined.
-    joined: bool,
+    _joined: bool,
 
     const RealNameType = [512]u8;
-    realname: RealNameType,
-    realname_end: usize,
+    _realname: RealNameType,
+    _realname_end: usize,
     const NickNameType = [9]u8;
-    nickname: NickNameType,
-    nickname_end: usize,
+    _nickname: NickNameType,
+    _nickname_end: usize,
 
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
     /// constructing the client fails, the file descriptor gets closed.
@@ -231,48 +237,53 @@ const Client = struct {
             return err;
         };
         client_node.* = ClientList.Node.init(Client{
-            .parent = client_node,
-            .server = server,
-            .allocator = allocator,
-            .fd = fd,
-            .addr = addr,
-            .write_file_out_stream = os.File.openHandle(fd).outStream(),
-            .write_stream = &client_node.data.write_file_out_stream.stream,
-            .input_state = Client.InputState.Normal,
-            .input_buffer = undefined,
-            .input_received = 0,
-            .joined = false,
-            .realname = []u8{0} ** Client.RealNameType.len,
-            .realname_end = 0,
-            .nickname = []u8{0} ** Client.NickNameType.len,
-            .nickname_end = 0,
+            ._parent = client_node,
+            ._server = server,
+            ._allocator = allocator,
+            ._fd = fd,
+            ._addr = addr,
+            ._write_file_out_stream = os.File.openHandle(fd).outStream(),
+            ._write_stream = &client_node.data._write_file_out_stream.stream,
+            ._input_state = Client.InputState.Normal,
+            ._input_buffer = undefined,
+            ._input_received = 0,
+            ._joined = false,
+            ._realname = []u8{0} ** Client.RealNameType.len,
+            ._realname_end = 0,
+            ._nickname = []u8{0} ** Client.NickNameType.len,
+            ._nickname_end = 0,
         });
         return &client_node.data;
     }
 
     /// Close connection to a client and destroy the client data.
     fn destroy(self: *Client) void {
-        os.close(self.fd);
+        os.close(self._fd);
         self._info("Closed the client connection.\n");
-        self.allocator.destroy(self.parent);
+        self._allocator.destroy(self._parent);
+    }
+
+    /// Get a pointer to the parent LinkedList node.
+    fn getNodePointer(self: *Client) *ClientList.Node {
+        return self._parent;
     }
 
     /// Get a slice with the client's real name.
     fn _getRealName(self: *Client) []const u8 {
-        return self.realname[0..self.realname_end];
+        return self._realname[0..self._realname_end];
     }
 
     /// Get a slice with the client's nick name.
     fn _getNickName(self: *Client) []const u8 {
-        return self.nickname[0..self.nickname_end];
+        return self._nickname[0..self._nickname_end];
     }
 
     fn _info(self: *Client, comptime fmt: []const u8, args: ...) void {
-        info("{}: " ++ fmt, self.addr, args);
+        info("{}: " ++ fmt, self._addr, args);
     }
 
     fn _warn(self: *Client, comptime fmt: []const u8, args: ...) void {
-        warn("{}: " ++ fmt, self.addr, args);
+        warn("{}: " ++ fmt, self._addr, args);
     }
 
     fn _acceptParamMax(self: *Client, lexer: *Lexer, param: []const u8, maxlen: usize) ![]const u8 {
@@ -297,35 +308,35 @@ const Client = struct {
     /// Process the USER command.
     /// Parameters: <username> <hostname> <servername> <realname>
     fn _processCommand_USER(self: *Client, lexer: *Lexer) !void {
-        if (self.realname_end != 0)
+        if (self._realname_end != 0)
             return error.AlreadyRegistred;
 
         const username = try self._acceptParam(lexer, "<username>");
         const hostname = try self._acceptParam(lexer, "<hostname>");
         const servername = try self._acceptParam(lexer, "<servername>");
 
-        const realname = try self._acceptParamMax(lexer, "<realname>", self.realname.len);
-        mem.copy(u8, self.realname[0..], realname);
-        self.realname_end = realname.len;
+        const realname = try self._acceptParamMax(lexer, "<realname>", self._realname.len);
+        mem.copy(u8, self._realname[0..], realname);
+        self._realname_end = realname.len;
 
         // TODO Check there no more unexpected parameters.
 
         // Complete the join if the initial USER and NICK pair was already received.
-        if (!self.joined and self.nickname_end != 0)
+        if (!self._joined and self._nickname_end != 0)
             try self._join();
     }
 
     /// Process the NICK command.
     /// Parameters: <nickname>
     fn _processCommand_NICK(self: *Client, lexer: *Lexer) !void {
-        const nickname = self._acceptParamMax(lexer, "<nickname>", self.nickname.len) catch |err| {
+        const nickname = self._acceptParamMax(lexer, "<nickname>", self._nickname.len) catch |err| {
             if (err == error.NeedsMoreParams) {
                 return error.NoNickNameGiven;
             } else
                 return err;
         };
-        mem.copy(u8, self.nickname[0..], nickname);
-        self.nickname_end = nickname.len;
+        mem.copy(u8, self._nickname[0..], nickname);
+        self._nickname_end = nickname.len;
 
         // TODO
         // ERR_ERRONEUSNICKNAME
@@ -334,37 +345,37 @@ const Client = struct {
         // TODO Check there no more unexpected parameters.
 
         // Complete the join if the initial USER and NICK pair was already received.
-        if (!self.joined and self.realname_end != 0)
+        if (!self._joined and self._realname_end != 0)
             try self._join();
     }
 
     /// Complete the client join after the initial USER and NICK pair is received.
     fn _join(self: *Client) !void {
-        assert(!self.joined);
-        assert(self.realname_end != 0);
-        assert(self.nickname_end != 0);
+        assert(!self._joined);
+        assert(self._realname_end != 0);
+        assert(self._nickname_end != 0);
 
         // TODO Get the IP address by referencing the server struct.
         // TODO RPL_LUSERCLIENT
         const nickname = self._getNickName();
         try self._sendMessage(":{} 251 {} :There are {} users and 0 invisible on 1 servers",
-                self.server.getHostName(), nickname, i32(1));
+                self._server.getHostName(), nickname, i32(1));
         // TODO Send motd.
         try self._sendMessage(":irczt-connect PRIVMSG {} :Hello", nickname);
-        self.joined = true;
+        self._joined = true;
     }
 
     /// Send a message to the client.
     fn _sendMessage(self: *Client, comptime fmt: []const u8, args: ...) !void {
         self._info("> " ++ fmt ++ "\n", args);
-        try self.write_stream.?.print(fmt ++ "\r\n", args);
+        try self._write_stream.?.print(fmt ++ "\r\n", args);
     }
 
     /// Process a single message from the client.
     fn _processMessage(self: *Client, message: []const u8) void {
         self._info("< {}\n", message);
 
-        var lexer = Lexer{ .message = message, .pos = 0 };
+        var lexer = Lexer.init(message);
 
         // Parse any prefix.
         if (lexer.getCurChar() == ':') {
@@ -389,66 +400,66 @@ const Client = struct {
     }
 
     fn processInput(self: *Client) !void {
-        assert(self.input_received < self.input_buffer.len);
-        var pos = self.input_received;
+        assert(self._input_received < self._input_buffer.len);
+        var pos = self._input_received;
         // TODO Use io.InStream.
-        const read = try os.posixRead(self.fd, self.input_buffer[pos..]);
+        const read = try os.posixRead(self._fd, self._input_buffer[pos..]);
         if (read == 0) {
             // TODO read = 0 -> EOF. Report any unhandled data.
         }
-        self.input_received += read;
+        self._input_received += read;
 
         var message_begin: usize = 0;
-        while (pos < self.input_received) : (pos += 1) {
-            const char = self.input_buffer[pos];
-            switch (self.input_state) {
+        while (pos < self._input_received) : (pos += 1) {
+            const char = self._input_buffer[pos];
+            switch (self._input_state) {
                 Client.InputState.Normal => {
                     if (char == '\r')
-                        self.input_state = Client.InputState.Normal_CR;
+                        self._input_state = Client.InputState.Normal_CR;
                     // TODO Check for invalid chars.
                 },
                 Client.InputState.Normal_CR => {
                     if (char == '\n') {
-                        self._processMessage(self.input_buffer[message_begin .. pos - 1]);
-                        self.input_state = Client.InputState.Normal;
+                        self._processMessage(self._input_buffer[message_begin .. pos - 1]);
+                        self._input_state = Client.InputState.Normal;
                         message_begin = pos + 1;
                     } else {
                         // TODO Print an error message.
-                        self.input_state = Client.InputState.Invalid;
+                        self._input_state = Client.InputState.Invalid;
                     }
                 },
                 Client.InputState.Invalid => {
                     if (char == '\r')
-                        self.input_state = Client.InputState.Invalid_CR;
+                        self._input_state = Client.InputState.Invalid_CR;
                 },
                 Client.InputState.Invalid_CR => {
                     if (char == '\n') {
-                        self.input_state = Client.InputState.Normal;
+                        self._input_state = Client.InputState.Normal;
                         message_begin = pos + 1;
                     } else
-                        self.input_state = Client.InputState.Invalid;
+                        self._input_state = Client.InputState.Invalid;
                 },
             }
         }
 
-        switch (self.input_state) {
+        switch (self._input_state) {
             Client.InputState.Normal, Client.InputState.Normal_CR => {
-                if (message_begin >= self.input_received) {
-                    assert(message_begin == self.input_received);
-                    self.input_received = 0;
+                if (message_begin >= self._input_received) {
+                    assert(message_begin == self._input_received);
+                    self._input_received = 0;
                 } else if (message_begin == 0) {
                     // TODO Message overflow.
-                    if (self.input_state == Client.InputState.Normal) { // TODO Remove braces.
-                        self.input_state = Client.InputState.Invalid;
+                    if (self._input_state == Client.InputState.Normal) { // TODO Remove braces.
+                        self._input_state = Client.InputState.Invalid;
                     } else
-                        self.input_state = Client.InputState.Invalid_CR;
+                        self._input_state = Client.InputState.Invalid_CR;
                 } else {
-                    mem.copy(u8, self.input_buffer[0..], self.input_buffer[message_begin..self.input_received]);
-                    self.input_received -= message_begin;
+                    mem.copy(u8, self._input_buffer[0..], self._input_buffer[message_begin..self._input_received]);
+                    self._input_received -= message_begin;
                 }
             },
             Client.InputState.Invalid, Client.InputState.Invalid_CR => {
-                self.input_received = 0;
+                self._input_received = 0;
             },
         }
     }
@@ -457,13 +468,13 @@ const Client = struct {
 const ClientList = LinkedList(Client);
 
 const Server = struct {
-    allocator: *Allocator,
+    _allocator: *Allocator,
 
-    sockaddr: net.Address,
-    host: []const u8,
-    port: []const u8,
+    _sockaddr: net.Address,
+    _host: []const u8,
+    _port: []const u8,
 
-    clients: ClientList,
+    _clients: ClientList,
 
     fn create(address: []const u8, allocator: *Allocator) !*Server {
         // Parse the address.
@@ -510,19 +521,19 @@ const Server = struct {
             return err;
         };
         server.* = Server{
-            .allocator = allocator,
-            .sockaddr = net.Address.initIp4(parsed_host, parsed_port),
-            .host = host_copy,
-            .port = port_copy,
-            .clients = ClientList.init(),
+            ._allocator = allocator,
+            ._sockaddr = net.Address.initIp4(parsed_host, parsed_port),
+            ._host = host_copy,
+            ._port = port_copy,
+            ._clients = ClientList.init(),
         };
         return server;
     }
 
     fn destroy(self: *Server) void {
-        self.allocator.free(self.host);
-        self.allocator.free(self.port);
-        self.allocator.destroy(self);
+        self._allocator.free(self._host);
+        self._allocator.free(self._port);
+        self._allocator.destroy(self);
     }
 
     fn run(self: *Server) !void {
@@ -533,13 +544,13 @@ const Server = struct {
         };
         defer os.close(listenfd);
 
-        os.posixBind(listenfd, &self.sockaddr.os_addr) catch |err| {
-            warn("Failed to bind to address {}:{}: {}.\n", self.host, self.port, @errorName(err));
+        os.posixBind(listenfd, &self._sockaddr.os_addr) catch |err| {
+            warn("Failed to bind to address {}:{}: {}.\n", self._host, self._port, @errorName(err));
             return err;
         };
 
         os.posixListen(listenfd, os.posix.SOMAXCONN) catch |err| {
-            warn("Failed to listen on {}:{}: {}.\n", self.host, self.port, @errorName(err));
+            warn("Failed to listen on {}:{}: {}.\n", self._host, self._port, @errorName(err));
             return err;
         };
 
@@ -561,14 +572,14 @@ const Server = struct {
 
         // Destroy at the end all clients that will be created.
         defer {
-            while (self.clients.pop()) |client_node| {
+            while (self._clients.pop()) |client_node| {
                 // Destroy the client and its LinkedList node.
                 client_node.data.destroy();
             }
         }
 
         // Listen for events.
-        info("Listening on {}:{}.\n", self.host, self.port);
+        info("Listening on {}:{}.\n", self._host, self._port);
         while (true) {
             var events: [1]os.posix.epoll_event = undefined;
             const ep = os.linuxEpollWait(epfd, events[0..], -1);
@@ -585,7 +596,7 @@ const Server = struct {
 
                 // Create a new client. This transfers ownership of the clientfd to the Client
                 // instance.
-                const client = Client.create(clientfd, client_sockaddr, self, self.allocator) catch continue;
+                const client = Client.create(clientfd, client_sockaddr, self, self._allocator) catch continue;
 
                 // Listen for the client.
                 // FIXME .events
@@ -599,7 +610,7 @@ const Server = struct {
                     continue;
                 };
 
-                self.clients.append(client.parent);
+                self._clients.append(client.getNodePointer());
             } else {
                 const client = @intToPtr(*Client, events[0].data.ptr);
                 // TODO
@@ -609,7 +620,7 @@ const Server = struct {
     }
 
     fn getHostName(self: *Server) []const u8 {
-        return self.host;
+        return self._host;
     }
 };
 
