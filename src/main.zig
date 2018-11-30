@@ -230,7 +230,7 @@ const Client = struct {
         errdefer os.close(fd);
 
         const addr = NetAddress{ .addr = net.Address.initPosix(sockaddr) };
-        info("{}: Accepted a new client connection.\n", addr);
+        info("{}: Accepted a new client.\n", addr);
 
         const client_node = allocator.createOne(ClientList.Node) catch |err| {
             warn("{}: Failed to allocate a client node: {}.\n", addr, @errorName(err));
@@ -266,6 +266,11 @@ const Client = struct {
     /// Get a pointer to the parent LinkedList node.
     fn getNodePointer(self: *Client) *ClientList.Node {
         return self._parent;
+    }
+
+    /// Get the clien file descriptor.
+    fn getFileDescriptor(self: *Client) i32 {
+        return self._fd;
     }
 
     /// Get a slice with the client's real name.
@@ -404,7 +409,10 @@ const Client = struct {
         // TODO Use io.InStream.
         const read = try os.posixRead(self._fd, self._input_buffer[pos..]);
         if (read == 0) {
-            // TODO read = 0 -> EOF. Report any unhandled data.
+            // End of file reached.
+            self._info("Client disconnected.\n");
+            // TODO Report any unhandled data.
+            return error.ClientDisconnected;
         }
         self._input_received += read;
 
@@ -565,7 +573,7 @@ const Server = struct {
             .data = os.posix.epoll_data{ .ptr = 0 },
         };
         os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, listenfd, &listenfd_event) catch |err| {
-            warn("Failed to add the server socket to the epoll instance: {}.\n", @errorName(err));
+            warn("Failed to add the server socket (file descriptor {}) to the epoll instance: {}.\n", listenfd, @errorName(err));
             return err;
         };
 
@@ -598,13 +606,12 @@ const Server = struct {
                 const client = Client.create(clientfd, client_sockaddr, self, self._allocator) catch continue;
 
                 // Listen for the client.
-                // FIXME .events
                 var clientfd_event = os.posix.epoll_event{
                     .events = os.posix.EPOLLIN,
                     .data = os.posix.epoll_data{ .ptr = @ptrToInt(client) },
                 };
                 os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
-                    warn("Failed to add a client socket to the epoll instance: {}.\n", @errorName(err));
+                    warn("Failed to add a client socket (file descriptor {}) to the epoll instance: {}.\n", clientfd, @errorName(err));
                     client.destroy();
                     continue;
                 };
@@ -612,8 +619,16 @@ const Server = struct {
                 self._clients.append(client.getNodePointer());
             } else {
                 const client = @intToPtr(*Client, events[0].data.ptr);
-                // TODO
-                try client.processInput();
+                client.processInput() catch {
+                    const clientfd = client.getFileDescriptor();
+                    os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_DEL, clientfd, undefined) catch |err| {
+                        warn("Failed to remove a client socket (file descriptor {}) from the epoll instance: {}.\n", clientfd, @errorName(err));
+                        return err;
+                    };
+
+                    self._clients.remove(client.getNodePointer());
+                    client.destroy();
+                };
             }
         }
     }
