@@ -441,7 +441,6 @@ const Client = struct {
         assert(self._realname_end != 0);
         assert(self._nickname_end != 0);
 
-        // TODO Get the IP address by referencing the server struct.
         // TODO RPL_LUSERCLIENT
         const nickname = self._getNickName();
         var ec: bool = undefined;
