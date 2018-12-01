@@ -230,11 +230,11 @@ const Lexer = struct {
         };
     }
 
-    fn getCurPos(self: *Lexer) usize {
+    fn getCurPos(self: *const Lexer) usize {
         return self._pos;
     }
 
-    fn getCurChar(self: *Lexer) u8 {
+    fn getCurChar(self: *const Lexer) u8 {
         if (self._pos < self._message.len)
             return self._message[self._pos];
         return 0;
@@ -270,7 +270,7 @@ const Lexer = struct {
 
 const Client = struct {
     _parent: *ClientList.Node,
-    _server: *Server,
+    _server: *const Server,
     _allocator: *Allocator,
     _fd: i32,
     _addr: NetAddress,
@@ -301,7 +301,7 @@ const Client = struct {
 
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
     /// constructing the client fails, the file descriptor gets closed.
-    fn create(fd: i32, sockaddr: os.posix.sockaddr, server: *Server, allocator: *Allocator) !*Client {
+    fn create(fd: i32, sockaddr: os.posix.sockaddr, server: *const Server, allocator: *Allocator) !*Client {
         errdefer os.close(fd);
 
         const addr = NetAddress{ .addr = net.Address.initPosix(sockaddr) };
@@ -339,22 +339,22 @@ const Client = struct {
     }
 
     /// Get a pointer to the parent LinkedList node.
-    fn getNodePointer(self: *Client) *ClientList.Node {
+    fn getNodePointer(self: *const Client) *ClientList.Node {
         return self._parent;
     }
 
     /// Get the clien file descriptor.
-    fn getFileDescriptor(self: *Client) i32 {
+    fn getFileDescriptor(self: *const Client) i32 {
         return self._fd;
     }
 
     /// Get a slice with the client's real name.
-    fn _getRealName(self: *Client) []const u8 {
+    fn _getRealName(self: *const Client) []const u8 {
         return self._realname[0..self._realname_end];
     }
 
     /// Get a slice with the client's nick name.
-    fn _getNickName(self: *Client) []const u8 {
+    fn _getNickName(self: *const Client) []const u8 {
         return self._nickname[0..self._nickname_end];
     }
 
@@ -711,7 +711,7 @@ const Server = struct {
         }
     }
 
-    fn getHostName(self: *Server) []const u8 {
+    fn getHostName(self: *const Server) []const u8 {
         return self._host;
     }
 };
