@@ -104,7 +104,11 @@ fn warn(comptime fmt: []const u8, args: ...) void {
 /// Thin wrapper around net.Address to provide integration with std.fmt.
 const NetAddress = struct {
     // TODO Replace NetAddress with the plain net.Address when it gains proper support for std.fmt.
-    addr: net.Address,
+    _addr: net.Address,
+
+    fn init(addr: net.Address) NetAddress {
+        return NetAddress{ ._addr = addr };
+    }
 
     fn formatU16(output: *[5]u8, value: u16) []const u8 {
         var rem = value;
@@ -124,10 +128,10 @@ const NetAddress = struct {
         comptime FmtError: type,
         output: fn (@typeOf(context), []const u8) FmtError!void,
     ) FmtError!void {
-        assert(self.addr.os_addr.in.family == os.posix.AF_INET);
+        assert(self._addr.os_addr.in.family == os.posix.AF_INET);
 
-        const native_endian_port = mem.endianSwapIfLe(u16, self.addr.os_addr.in.port);
-        const bytes = @sliceToBytes((*[1]u32)(&self.addr.os_addr.in.addr)[0..]);
+        const native_endian_port = mem.endianSwapIfLe(u16, self._addr.os_addr.in.port);
+        const bytes = @sliceToBytes((*[1]u32)(&self._addr.os_addr.in.addr)[0..]);
 
         var tmp: [5]u8 = undefined;
         try output(context, formatU16(&tmp, bytes[0]));
@@ -310,7 +314,7 @@ const Client = struct {
     fn create(fd: i32, sockaddr: os.posix.sockaddr, server: *const Server, allocator: *Allocator) !*Client {
         errdefer os.close(fd);
 
-        const addr = NetAddress{ .addr = net.Address.initPosix(sockaddr) };
+        const addr = NetAddress.init(net.Address.initPosix(sockaddr));
         info("{}: Accepted a new client.\n", addr);
 
         const client_node = allocator.createOne(ClientList.Node) catch |err| {
