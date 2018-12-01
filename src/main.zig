@@ -12,9 +12,11 @@ const Allocator = std.mem.Allocator;
 const LinkedList = std.LinkedList;
 const assert = std.debug.assert;
 
+const config = @import("config.zig");
+
 const timestamp_str_width = "[18446744073709551.615]".len;
 
-/// Convert a timestamp to a string.
+/// Convert timestamp to a string.
 fn formatTimeStamp(output: *[timestamp_str_width]u8, milliseconds: u64) void {
     var rem = milliseconds;
     var i = timestamp_str_width;
@@ -630,6 +632,10 @@ const Server = struct {
         self._allocator.destroy(self);
     }
 
+    fn getHostName(self: *const Server) []const u8 {
+        return self._host;
+    }
+
     fn run(self: *Server) !void {
         // Create the server socket.
         const listenfd = os.posixSocket(os.posix.AF_INET, os.posix.SOCK_STREAM | os.posix.SOCK_CLOEXEC, os.posix.PROTO_tcp) catch |err| {
@@ -720,8 +726,12 @@ const Server = struct {
         }
     }
 
-    fn getHostName(self: *const Server) []const u8 {
-        return self._host;
+    fn createChannel(self: *Server, name: []const u8) void {
+        // TODO
+    }
+
+    fn createAutoUser(self: *Server, name: []const u8) void {
+        // TODO
     }
 };
 
@@ -732,10 +742,17 @@ pub fn main() u8 {
     // Get an allocator.
     const allocator = std.heap.c_allocator;
 
-    // Create and run the server.
-    const server = Server.create("127.0.0.1:6667", allocator) catch return 1;
+    // Create the server.
+    const server = Server.create(config.address, allocator) catch return 1;
     defer server.destroy();
-    server.run() catch return 1;
 
+    // Create pre-defined channels and automatic users.
+    for (config.channels) |channel|
+        server.createChannel(channel);
+    for (config.auto_users) |auto_user|
+        server.createAutoUser(auto_user);
+
+    // Run the server.
+    server.run() catch return 1;
     return 0;
 }
