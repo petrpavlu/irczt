@@ -12,8 +12,6 @@ const Allocator = std.mem.Allocator;
 const LinkedList = std.LinkedList;
 const assert = std.debug.assert;
 
-// TODO Add a format wrapper to escape non-printable characters in received commands.
-
 const timestamp_str_width = "[18446744073709551.615]".len;
 
 /// Convert a timestamp to a string.
@@ -143,6 +141,83 @@ const NetAddress = struct {
         return output(context, formatU16(&tmp, native_endian_port));
     }
 };
+
+/// Thin wrapper for character slices to output non-printable characters as escaped values with
+/// std.fmt.
+const EscapeFormatter = struct {
+    _slice: []const u8,
+
+    fn init(slice: []const u8) EscapeFormatter {
+        return EscapeFormatter{ ._slice = slice };
+    }
+
+    fn getSlice(self: *const EscapeFormatter) []const u8 {
+        return self._slice;
+    }
+
+    fn format(
+        self: EscapeFormatter,
+        comptime fmt: []const u8,
+        context: var,
+        comptime FmtError: type,
+        output: fn (@typeOf(context), []const u8) FmtError!void,
+    ) FmtError!void {
+        if (fmt.len > 0)
+            @compileError("Unknown format character: " ++ []u8{fmt[0]});
+
+        for (self._slice) |char| {
+            if (char == '\\') {
+                try output(context, "\\\\");
+            } else if (char >= ' ' and char <= '~') {
+                try output(context, []u8{char});
+            } else {
+                try output(context, "\\x");
+                try output(context, []u8{'0' + (char / 10)});
+                try output(context, []u8{'0' + (char % 10)});
+            }
+        }
+        return {};
+    }
+};
+
+/// Alias for EscapeFormatter.init().
+fn Protect(slice: []const u8) EscapeFormatter {
+    return EscapeFormatter.init(slice);
+}
+
+/// Conditional escape provider.
+const ConditionalEscapeFormatter = struct {
+    _escape: EscapeFormatter,
+    _cond: *bool,
+
+    fn init(slice: []const u8, cond: *bool) ConditionalEscapeFormatter {
+        return ConditionalEscapeFormatter{
+            ._escape = EscapeFormatter.init(slice),
+            ._cond = cond,
+        };
+    }
+
+    fn format(
+        self: ConditionalEscapeFormatter,
+        comptime fmt: []const u8,
+        context: var,
+        comptime FmtError: type,
+        output: fn (@typeOf(context), []const u8) FmtError!void,
+    ) FmtError!void {
+        if (fmt.len > 0)
+            @compileError("Unknown format character: " ++ []u8{fmt[0]});
+
+        if (self._cond.*) {
+            try self._escape.format(fmt, context, FmtError, output);
+        } else
+            try output(context, self._escape.getSlice());
+    }
+};
+
+/// Alias for ConditionalEscapeFormatter.init().
+fn CProtect(slice: []const u8, cond: *bool) ConditionalEscapeFormatter {
+    return ConditionalEscapeFormatter.init(slice, cond);
+}
 
 const Lexer = struct {
     _message: []const u8,
@@ -363,21 +438,24 @@ const Client = struct {
         // TODO Get the IP address by referencing the server struct.
         // TODO RPL_LUSERCLIENT
         const nickname = self._getNickName();
-        try self._sendMessage(":{} 251 {} :There are {} users and 0 invisible on 1 servers", self._server.getHostName(), nickname, i32(1));
+        var ec: bool = undefined;
+        try self._sendMessage(&ec, ":{} 251 {} :There are {} users and 0 invisible on 1 servers", self._server.getHostName(), CProtect(nickname, &ec), i32(1));
         // TODO Send motd.
-        try self._sendMessage(":irczt-connect PRIVMSG {} :Hello", nickname);
+        try self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", CProtect(nickname, &ec));
         self._joined = true;
     }
 
     /// Send a message to the client.
-    fn _sendMessage(self: *Client, comptime fmt: []const u8, args: ...) !void {
+    fn _sendMessage(self: *Client, escape_cond: *bool, comptime fmt: []const u8, args: ...) !void {
+        escape_cond.* = true;
         self._info("> " ++ fmt ++ "\n", args);
+        escape_cond.* = false;
         try self._write_stream.?.print(fmt ++ "\r\n", args);
     }
 
     /// Process a single message from the client.
     fn _processMessage(self: *Client, message: []const u8) void {
-        self._info("< {}\n", message);
+        self._info("< {}\n", Protect(message));
 
         var lexer = Lexer.init(message);
 
@@ -395,10 +473,10 @@ const Client = struct {
         } else if (mem.eql(u8, command, "NICK")) {
             res = self._processCommand_NICK(&lexer);
         } else
-            self._warn("Unrecognized command: {}\n", command);
+            self._warn("Unrecognized command: {}\n", Protect(command));
 
         if (res) {} else |err| {
-            self._warn("Error: {}!\n", command);
+            self._warn("Error: {}!\n", Protect(command));
             // TODO
         }
     }
