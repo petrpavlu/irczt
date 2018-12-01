@@ -223,6 +223,7 @@ const Lexer = struct {
     _message: []const u8,
     _pos: usize,
 
+    /// Construct a Lexer.
     fn init(message: []const u8) Lexer {
         return Lexer{
             ._message = message,
@@ -230,22 +231,26 @@ const Lexer = struct {
         };
     }
 
+    /// Return the current position in the input message.
     fn getCurPos(self: *const Lexer) usize {
         return self._pos;
     }
 
+    /// Return the current character.
     fn getCurChar(self: *const Lexer) u8 {
         if (self._pos < self._message.len)
             return self._message[self._pos];
         return 0;
     }
 
+    /// Skip to a next character in the message.
     fn nextChar(self: *Lexer) void {
         if (self._pos < self._message.len)
             self._pos += 1;
     }
 
-    fn getWord(self: *Lexer) []const u8 {
+    /// Read one word from the message.
+    fn readWord(self: *Lexer) []const u8 {
         const begin = self._pos;
 
         var end = begin;
@@ -258,13 +263,14 @@ const Lexer = struct {
         return self._message[begin..end];
     }
 
-    fn getParam(self: *Lexer) []const u8 {
+    /// Read one parameter from the message.
+    fn readParam(self: *Lexer) []const u8 {
         if (self.getCurChar() == ':') {
             const begin = self._pos + 1;
             self._pos = self._message.len;
             return self._message[begin..self._pos];
         }
-        return self.getWord();
+        return self.readWord();
     }
 };
 
@@ -368,7 +374,7 @@ const Client = struct {
 
     fn _acceptParamMax(self: *Client, lexer: *Lexer, param: []const u8, maxlen: usize) ![]const u8 {
         const begin = lexer.getCurPos();
-        const res = lexer.getParam();
+        const res = lexer.readParam();
         if (res.len == 0) {
             self._warn("Position {}, expected parameter {}.\n", begin + 1, param);
             return error.NeedsMoreParams;
@@ -465,7 +471,7 @@ const Client = struct {
         }
 
         // Parse the command name.
-        const command = lexer.getWord();
+        const command = lexer.readWord();
         // TODO Error handling.
         var res: anyerror!void = {};
         if (mem.eql(u8, command, "USER")) {
