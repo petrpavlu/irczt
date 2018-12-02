@@ -282,7 +282,7 @@ const Lexer = struct {
 
 const Client = struct {
     _parent: *ClientList.Node,
-    _server: *const Server,
+    _server: *Server,
     _allocator: *Allocator,
     _fd: i32,
     _addr: NetAddress,
@@ -313,7 +313,7 @@ const Client = struct {
 
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
     /// constructing the client fails, the file descriptor gets closed.
-    fn create(fd: i32, sockaddr: os.posix.sockaddr, server: *const Server, allocator: *Allocator) !*Client {
+    fn create(fd: i32, sockaddr: os.posix.sockaddr, server: *Server, allocator: *Allocator) !*Client {
         errdefer os.close(fd);
 
         const addr = NetAddress.init(net.Address.initPosix(sockaddr));
@@ -350,7 +350,7 @@ const Client = struct {
         self._allocator.destroy(self._parent);
     }
 
-    /// Get a pointer to the parent LinkedList node.
+    /// Get a pointer to the parent LinkedList node. This must be used only by the server.
     fn getNodePointer(self: *const Client) *ClientList.Node {
         return self._parent;
     }
@@ -563,6 +563,49 @@ const Client = struct {
 
 const ClientList = LinkedList(Client);
 
+const Channel = struct {
+    _parent: *ChannelList.Node,
+    _server: *Server,
+    _allocator: *Allocator,
+    _name: []const u8,
+
+    /// Create a new channel with the given name.
+    fn create(name: []const u8, server: *Server, allocator: *Allocator) !*Channel {
+        // Make a copy of the name string.
+        const name_copy = allocator.alloc(u8, name.len) catch |err| {
+            warn("Failed to allocate a channel name string buffer: {}.\n", @errorName(err));
+            return err;
+        };
+        errdefer allocator.free(name_copy);
+        mem.copy(u8, name_copy, name);
+
+        // Allocate a channel node.
+        const channel_node = allocator.createOne(ChannelList.Node) catch |err| {
+            warn("Failed to allocate a channel node: {}.\n", @errorName(err));
+            return err;
+        };
+        channel_node.* = ChannelList.Node.init(Channel{
+            ._parent = channel_node,
+            ._server = server,
+            ._allocator = allocator,
+            ._name = name,
+        });
+        return &channel_node.data;
+    }
+
+    fn destroy(self: *Channel) void {
+        self._allocator.free(self._name);
+        self._allocator.destroy(self);
+    }
+
+    /// Get a pointer to the parent LinkedList node. This must be used only by the server.
+    fn getNodePointer(self: *const Channel) *ChannelList.Node {
+        return self._parent;
+    }
+};
+
+const ChannelList = LinkedList(Channel);
+
 const Server = struct {
     _allocator: *Allocator,
 
@@ -571,6 +614,7 @@ const Server = struct {
     _port: []const u8,
 
     _clients: ClientList,
+    _channels: ChannelList,
 
     fn create(address: []const u8, allocator: *Allocator) !*Server {
         // Parse the address.
@@ -622,11 +666,18 @@ const Server = struct {
             ._host = host_copy,
             ._port = port_copy,
             ._clients = ClientList.init(),
+            ._channels = ChannelList.init(),
         };
         return server;
     }
 
     fn destroy(self: *Server) void {
+        // Destroy all clients/channels and their LinkedList nodes.
+        while (self._clients.pop()) |client_node|
+            client_node.data.destroy();
+        while (self._channels.pop()) |channel_node|
+            channel_node.data.destroy();
+
         self._allocator.free(self._host);
         self._allocator.free(self._port);
         self._allocator.destroy(self);
@@ -669,14 +720,6 @@ const Server = struct {
             warn("Failed to add the server socket (file descriptor {}) to the epoll instance: {}.\n", listenfd, @errorName(err));
             return err;
         };
-
-        // Destroy at the end all clients that will be created.
-        defer {
-            while (self._clients.pop()) |client_node| {
-                // Destroy the client and its LinkedList node.
-                client_node.data.destroy();
-            }
-        }
 
         // Listen for events.
         info("Listening on {}:{}.\n", self._host, self._port);
@@ -726,8 +769,10 @@ const Server = struct {
         }
     }
 
-    fn createChannel(self: *Server, name: []const u8) void {
-        // TODO
+    /// Create a new channel with the given name.
+    fn createChannel(self: *Server, name: []const u8) !void {
+        const channel = try Channel.create(name, self, self._allocator);
+        self._channels.append(channel.getNodePointer());
     }
 
     fn createAutoUser(self: *Server, name: []const u8) void {
@@ -748,7 +793,7 @@ pub fn main() u8 {
 
     // Create pre-defined channels and automatic users.
     for (config.channels) |channel|
-        server.createChannel(channel);
+        server.createChannel(channel) catch return 1;
     for (config.auto_users) |auto_user|
         server.createAutoUser(auto_user);
 
