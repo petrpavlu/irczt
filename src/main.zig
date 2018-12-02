@@ -462,11 +462,47 @@ const Client = struct {
         self._joined = true;
     }
 
+    /// Check that the user has fully joined. If not then send ERR_NOTREGISTERED to the client and
+    /// return error.NotRegistered.
+    fn _checkJoined(self: *Client) !void {
+        if (self._joined)
+            return;
+        try self._sendMessage(null, ":{} 451 * :You have not registered", self._server.getHostName());
+        return error.NotRegistered;
+    }
+
+    /// Process the LIST command.
+    /// Parameters: [<channel>{,<channel>} [<server>]]
+    fn _processCommand_LIST(self: *Client, lexer: *Lexer) !void {
+        try self._checkJoined();
+
+        // TODO Parse the parameters.
+
+        const nickname = self._getNickName();
+        var ec: bool = undefined;
+
+        // Send RPL_LISTSTART.
+        try self._sendMessage(&ec, ":{} 321 {} Channel :Users  Name", self._server.getHostName(), CProtect(nickname, &ec));
+
+        // Send RPL_LIST for each channel.
+        const channels = self._server.getChannels();
+        var it = channels.first;
+        while (it) |node| : (it = node.next) {
+            const channel = &node.data;
+            try self._sendMessage(&ec, ":{} 322 {} {} {} :", self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel.getName(), &ec), channel.getUserCount());
+        }
+
+        // Send RPL_LISTEND.
+        try self._sendMessage(&ec, ":{} 323 {} :End of /LIST", self._server.getHostName(), CProtect(nickname, &ec));
+    }
+
     /// Send a message to the client.
-    fn _sendMessage(self: *Client, escape_cond: *bool, comptime fmt: []const u8, args: ...) !void {
-        escape_cond.* = true;
+    fn _sendMessage(self: *Client, escape_cond: ?*bool, comptime fmt: []const u8, args: ...) !void {
+        if (escape_cond != null)
+            escape_cond.?.* = true;
         self._info("> " ++ fmt ++ "\n", args);
-        escape_cond.* = false;
+        if (escape_cond != null)
+            escape_cond.?.* = false;
         try self._write_stream.?.print(fmt ++ "\r\n", args);
     }
 
@@ -489,6 +525,8 @@ const Client = struct {
             res = self._processCommand_USER(&lexer);
         } else if (mem.eql(u8, command, "NICK")) {
             res = self._processCommand_NICK(&lexer);
+        } else if (mem.eql(u8, command, "LIST")) {
+            res = self._processCommand_LIST(&lexer);
         } else
             self._warn("Unrecognized command: {}\n", Protect(command));
 
@@ -608,6 +646,15 @@ const Channel = struct {
     fn getNodePointer(self: *const Channel) *ChannelList.Node {
         return self._parent;
     }
+
+    fn getName(self: *const Channel) []const u8 {
+        return self._name;
+    }
+
+    fn getUserCount(self: *const Channel) usize {
+        // TODO Implement.
+        return 0;
+    }
 };
 
 const ChannelList = LinkedList(Channel);
@@ -691,6 +738,10 @@ const Server = struct {
 
     fn getHostName(self: *const Server) []const u8 {
         return self._host;
+    }
+
+    fn getChannels(self: *const Server) *const ChannelList {
+        return &self._channels;
     }
 
     fn run(self: *Server) !void {
