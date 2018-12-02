@@ -346,7 +346,7 @@ const Client = struct {
     /// Close connection to a client and destroy the client data.
     fn destroy(self: *Client) void {
         os.close(self._fd);
-        self._info("Closed the client connection.\n");
+        self._info("Closed client connection.\n");
         self._allocator.destroy(self._parent);
     }
 
@@ -400,8 +400,10 @@ const Client = struct {
     /// Process the USER command.
     /// Parameters: <username> <hostname> <servername> <realname>
     fn _processCommand_USER(self: *Client, lexer: *Lexer) !void {
-        if (self._realname_end != 0)
+        if (self._realname_end != 0) {
+            // TODO Log an error.
             return error.AlreadyRegistred;
+        }
 
         const username = try self._acceptParam(lexer, "<username>");
         const hostname = try self._acceptParam(lexer, "<hostname>");
@@ -447,12 +449,16 @@ const Client = struct {
         assert(self._realname_end != 0);
         assert(self._nickname_end != 0);
 
-        // TODO RPL_LUSERCLIENT
         const nickname = self._getNickName();
         var ec: bool = undefined;
+
+        // Send RPL_LUSERCLIENT.
+        // TODO Fix user count.
         try self._sendMessage(&ec, ":{} 251 {} :There are {} users and 0 invisible on 1 servers", self._server.getHostName(), CProtect(nickname, &ec), i32(1));
+
         // TODO Send motd.
         try self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", CProtect(nickname, &ec));
+
         self._joined = true;
     }
 
