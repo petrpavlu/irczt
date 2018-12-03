@@ -13,6 +13,7 @@ const LinkedList = std.LinkedList;
 const assert = std.debug.assert;
 
 const config = @import("config.zig");
+const Set = @import("set.zig").Set;
 
 const timestamp_str_width = "[18446744073709551.615]".len;
 
@@ -281,7 +282,6 @@ const Lexer = struct {
 };
 
 const Client = struct {
-    _parent: *ClientList.Node,
     _server: *Server,
     _allocator: *Allocator,
     _fd: i32,
@@ -319,18 +319,17 @@ const Client = struct {
         const addr = NetAddress.init(net.Address.initPosix(sockaddr));
         info("{}: Accepted a new client.\n", addr);
 
-        const client_node = allocator.createOne(ClientList.Node) catch |err| {
-            warn("{}: Failed to allocate a client node: {}.\n", addr, @errorName(err));
+        const client = allocator.createOne(Client) catch |err| {
+            warn("{}: Failed to allocate a client instance: {}.\n", addr, @errorName(err));
             return err;
         };
-        client_node.* = ClientList.Node.init(Client{
-            ._parent = client_node,
+        client.* = Client{
             ._server = server,
             ._allocator = allocator,
             ._fd = fd,
             ._addr = addr,
             ._write_file_out_stream = os.File.openHandle(fd).outStream(),
-            ._write_stream = &client_node.data._write_file_out_stream.stream,
+            ._write_stream = &client._write_file_out_stream.stream,
             ._input_state = Client.InputState.Normal,
             ._input_buffer = undefined,
             ._input_received = 0,
@@ -339,20 +338,15 @@ const Client = struct {
             ._realname_end = 0,
             ._nickname = []u8{0} ** Client.NickNameType.len,
             ._nickname_end = 0,
-        });
-        return &client_node.data;
+        };
+        return client;
     }
 
     /// Close connection to a client and destroy the client data.
     fn destroy(self: *Client) void {
         os.close(self._fd);
         self._info("Closed client connection.\n");
-        self._allocator.destroy(self._parent);
-    }
-
-    /// Get a pointer to the parent LinkedList node. This must be used only by the server.
-    fn getNodePointer(self: *const Client) *ClientList.Node {
-        return self._parent;
+        self._allocator.destroy(self);
     }
 
     /// Get the clien file descriptor.
@@ -605,7 +599,7 @@ const Client = struct {
     }
 };
 
-const ClientList = LinkedList(Client);
+const ClientSet = Set(Client);
 
 const Channel = struct {
     _parent: *ChannelList.Node,
@@ -666,7 +660,7 @@ const Server = struct {
     _host: []const u8,
     _port: []const u8,
 
-    _clients: ClientList,
+    _clients: ClientSet,
     _channels: ChannelList,
 
     fn create(address: []const u8, allocator: *Allocator) !*Server {
@@ -718,16 +712,22 @@ const Server = struct {
             ._sockaddr = net.Address.initIp4(parsed_host, parsed_port),
             ._host = host_copy,
             ._port = port_copy,
-            ._clients = ClientList.init(),
+            ._clients = ClientSet.init(allocator),
             ._channels = ChannelList.init(),
         };
         return server;
     }
 
     fn destroy(self: *Server) void {
-        // Destroy all clients/channels and their LinkedList nodes.
-        while (self._clients.pop()) |client_node|
-            client_node.data.destroy();
+        // Destroy all clients.
+        var maybe_client_node = self._clients.first();
+        while (maybe_client_node) |client_node| {
+            const client = client_node.data;
+            maybe_client_node = self._clients.remove(client_node);
+            client.destroy();
+        }
+
+        // Destroy all channels.
         while (self._channels.pop()) |channel_node|
             channel_node.data.destroy();
 
@@ -788,6 +788,7 @@ const Server = struct {
 
             // Check for a new connection and accept it.
             if (events[0].data.ptr == 0) {
+                // TODO Sink into a new method.
                 var client_sockaddr: os.posix.sockaddr = undefined;
                 const clientfd = os.posixAccept(listenfd, &client_sockaddr, os.posix.SOCK_CLOEXEC) catch |err| {
                     warn("Failed to accept a new client connection: {}.\n", @errorName(err));
@@ -797,6 +798,12 @@ const Server = struct {
                 // Create a new client. This transfers ownership of the clientfd to the Client
                 // instance.
                 const client = Client.create(clientfd, client_sockaddr, self, self._allocator) catch continue;
+                const client_node = self._clients.insert(client) catch |err| {
+                    // TODO Improve the message, include address prefix.
+                    warn("Failed to insert a client in the set of clients: {}.\n", @errorName(err));
+                    client.destroy();
+                    continue;
+                };
 
                 // Listen for the client.
                 var clientfd_event = os.posix.epoll_event{
@@ -805,11 +812,10 @@ const Server = struct {
                 };
                 os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
                     warn("Failed to add a client socket (file descriptor {}) to the epoll instance: {}.\n", clientfd, @errorName(err));
+                    _ = self._clients.remove(client_node);
                     client.destroy();
                     continue;
                 };
-
-                self._clients.append(client.getNodePointer());
             } else {
                 const client = @intToPtr(*Client, events[0].data.ptr);
                 client.processInput() catch {
@@ -819,7 +825,8 @@ const Server = struct {
                         return err;
                     };
 
-                    self._clients.remove(client.getNodePointer());
+                    const client_node = self._clients.lookup(client) orelse unreachable;
+                    _ = self._clients.remove(client_node);
                     client.destroy();
                 };
             }
