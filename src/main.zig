@@ -9,7 +9,6 @@ const net = std.net;
 const os = std.os;
 
 const Allocator = std.mem.Allocator;
-const LinkedList = std.LinkedList;
 const assert = std.debug.assert;
 
 const config = @import("config.zig");
@@ -480,9 +479,9 @@ const Client = struct {
 
         // Send RPL_LIST for each channel.
         const channels = self._server.getChannels();
-        var it = channels.first;
-        while (it) |node| : (it = node.next) {
-            const channel = &node.data;
+        var maybe_channel_node = channels.first();
+        while (maybe_channel_node) |channel_node| : (maybe_channel_node = channel_node.next()) {
+            const channel = channel_node.data;
             try self._sendMessage(&ec, ":{} 322 {} {} {} :", self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel.getName(), &ec), channel.getUserCount());
         }
 
@@ -602,7 +601,6 @@ const Client = struct {
 const ClientSet = Set(Client);
 
 const Channel = struct {
-    _parent: *ChannelList.Node,
     _server: *Server,
     _allocator: *Allocator,
     _name: []const u8,
@@ -617,28 +615,22 @@ const Channel = struct {
         errdefer allocator.free(name_copy);
         mem.copy(u8, name_copy, name);
 
-        // Allocate a channel node.
-        const channel_node = allocator.createOne(ChannelList.Node) catch |err| {
-            warn("Failed to allocate a channel node: {}.\n", @errorName(err));
+        // Allocate a channel instance.
+        const channel = allocator.createOne(Channel) catch |err| {
+            warn("Failed to allocate a channel instance: {}.\n", @errorName(err));
             return err;
         };
-        channel_node.* = ChannelList.Node.init(Channel{
-            ._parent = channel_node,
+        channel.* = Channel{
             ._server = server,
             ._allocator = allocator,
             ._name = name,
-        });
-        return &channel_node.data;
+        };
+        return channel;
     }
 
     fn destroy(self: *Channel) void {
         self._allocator.free(self._name);
         self._allocator.destroy(self);
-    }
-
-    /// Get a pointer to the parent LinkedList node. This must be used only by the server.
-    fn getNodePointer(self: *const Channel) *ChannelList.Node {
-        return self._parent;
     }
 
     fn getName(self: *const Channel) []const u8 {
@@ -651,7 +643,7 @@ const Channel = struct {
     }
 };
 
-const ChannelList = LinkedList(Channel);
+const ChannelSet = Set(Channel);
 
 const Server = struct {
     _allocator: *Allocator,
@@ -661,7 +653,7 @@ const Server = struct {
     _port: []const u8,
 
     _clients: ClientSet,
-    _channels: ChannelList,
+    _channels: ChannelSet,
 
     fn create(address: []const u8, allocator: *Allocator) !*Server {
         // Parse the address.
@@ -713,7 +705,7 @@ const Server = struct {
             ._host = host_copy,
             ._port = port_copy,
             ._clients = ClientSet.init(allocator),
-            ._channels = ChannelList.init(),
+            ._channels = ChannelSet.init(allocator),
         };
         return server;
     }
@@ -728,8 +720,12 @@ const Server = struct {
         }
 
         // Destroy all channels.
-        while (self._channels.pop()) |channel_node|
-            channel_node.data.destroy();
+        var maybe_channel_node = self._channels.first();
+        while (maybe_channel_node) |channel_node| {
+            const channel = channel_node.data;
+            maybe_channel_node = self._channels.remove(channel_node);
+            channel.destroy();
+        }
 
         self._allocator.free(self._host);
         self._allocator.free(self._port);
@@ -740,7 +736,7 @@ const Server = struct {
         return self._host;
     }
 
-    fn getChannels(self: *const Server) *const ChannelList {
+    fn getChannels(self: *Server) *ChannelSet {
         return &self._channels;
     }
 
@@ -836,7 +832,12 @@ const Server = struct {
     /// Create a new channel with the given name.
     fn createChannel(self: *Server, name: []const u8) !void {
         const channel = try Channel.create(name, self, self._allocator);
-        self._channels.append(channel.getNodePointer());
+        errdefer channel.destroy();
+
+        _ = self._channels.insert(channel) catch |err| {
+            warn("Failed to insert a channel in the set of channels: {}.\n", @errorName(err));
+            return err;
+        };
     }
 
     fn createAutoUser(self: *Server, name: []const u8) void {
