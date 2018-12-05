@@ -312,10 +312,9 @@ const Client = struct {
 
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
     /// constructing the client fails, the file descriptor gets closed.
-    fn create(fd: i32, sockaddr: os.posix.sockaddr, server: *Server, allocator: *Allocator) !*Client {
+    fn create(fd: i32, addr: NetAddress, server: *Server, allocator: *Allocator) !*Client {
         errdefer os.close(fd);
 
-        const addr = NetAddress.init(net.Address.initPosix(sockaddr));
         info("{}: Accepted a new client.\n", addr);
 
         const client = allocator.createOne(Client) catch |err| {
@@ -782,51 +781,56 @@ const Server = struct {
             if (ep == 0)
                 continue;
 
-            // Check for a new connection and accept it.
+            // Handle the event.
             if (events[0].data.ptr == 0) {
-                // TODO Sink into a new method.
-                var client_sockaddr: os.posix.sockaddr = undefined;
-                const clientfd = os.posixAccept(listenfd, &client_sockaddr, os.posix.SOCK_CLOEXEC) catch |err| {
-                    warn("Failed to accept a new client connection: {}.\n", @errorName(err));
-                    continue;
-                };
-
-                // Create a new client. This transfers ownership of the clientfd to the Client
-                // instance.
-                const client = Client.create(clientfd, client_sockaddr, self, self._allocator) catch continue;
-                const client_node = self._clients.insert(client) catch |err| {
-                    // TODO Improve the message, include address prefix.
-                    warn("Failed to insert a client in the set of clients: {}.\n", @errorName(err));
-                    client.destroy();
-                    continue;
-                };
-
-                // Listen for the client.
-                var clientfd_event = os.posix.epoll_event{
-                    .events = os.posix.EPOLLIN,
-                    .data = os.posix.epoll_data{ .ptr = @ptrToInt(client) },
-                };
-                os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
-                    warn("Failed to add a client socket (file descriptor {}) to the epoll instance: {}.\n", clientfd, @errorName(err));
-                    _ = self._clients.remove(client_node);
-                    client.destroy();
-                    continue;
-                };
-            } else {
-                const client = @intToPtr(*Client, events[0].data.ptr);
-                client.processInput() catch {
-                    const clientfd = client.getFileDescriptor();
-                    os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_DEL, clientfd, undefined) catch |err| {
-                        warn("Failed to remove a client socket (file descriptor {}) from the epoll instance: {}.\n", clientfd, @errorName(err));
-                        return err;
-                    };
-
-                    const client_node = self._clients.lookup(client) orelse unreachable;
-                    _ = self._clients.remove(client_node);
-                    client.destroy();
-                };
-            }
+                self._acceptClient(epfd, listenfd);
+            } else
+                self._processInput(epfd, @intToPtr(*Client, events[0].data.ptr));
         }
+    }
+
+    /// Accept a new client connection.
+    fn _acceptClient(self: *Server, epfd: i32, listenfd: i32) void {
+        var client_sockaddr: os.posix.sockaddr = undefined;
+        const clientfd = os.posixAccept(listenfd, &client_sockaddr, os.posix.SOCK_CLOEXEC) catch |err| {
+            warn("Failed to accept a new client connection: {}.\n", @errorName(err));
+            return;
+        };
+
+        const client_addr = NetAddress.init(net.Address.initPosix(client_sockaddr));
+
+        // Create a new client. This transfers ownership of the clientfd to the Client
+        // instance.
+        const client = Client.create(clientfd, client_addr, self, self._allocator) catch return;
+        errdefer client.destroy();
+
+        const client_node = self._clients.insert(client) catch |err| {
+            warn("{}: Failed to insert a client in the set of clients: {}.\n", client_addr, @errorName(err));
+            return;
+        };
+        errdefer self._clients.remove(client_node);
+
+        // Listen for the client.
+        var clientfd_event = os.posix.epoll_event{
+            .events = os.posix.EPOLLIN,
+            .data = os.posix.epoll_data{ .ptr = @ptrToInt(client) },
+        };
+        os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
+            warn("{}: Failed to add a client socket (file descriptor {}) to the epoll instance: {}.\n", client_addr, clientfd, @errorName(err));
+            return;
+        };
+    }
+
+    /// Process input from a client.
+    fn _processInput(self: *Server, epfd: i32, client: *Client) void {
+        client.processInput() catch {
+            const clientfd = client.getFileDescriptor();
+            os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_DEL, clientfd, undefined) catch unreachable;
+
+            const client_node = self._clients.lookup(client) orelse unreachable;
+            _ = self._clients.remove(client_node);
+            client.destroy();
+        };
     }
 
     /// Create a new channel with the given name.
