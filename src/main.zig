@@ -499,8 +499,10 @@ const Client = struct {
         self._info("> " ++ fmt ++ "\n", args);
         if (escape_cond != null)
             escape_cond.?.* = false;
-        // TODO Log an error if the write fails.
-        try self._write_stream.print(fmt ++ "\r\n", args);
+        self._write_stream.print(fmt ++ "\r\n", args) catch |err| {
+            self._warn("Failed to write message into the client socket: {}.\n", @errorName(err));
+            return err;
+        };
     }
 
     /// Process a single message from the client.
@@ -538,8 +540,10 @@ const Client = struct {
     fn processInput(self: *Client) !usize {
         assert(self._input_received < self._input_buffer.len);
         var pos = self._input_received;
-        // TODO Report an error if the read fails.
-        const read = try self._read_stream.read(self._input_buffer[pos..]);
+        const read = self._read_stream.read(self._input_buffer[pos..]) catch |err| {
+            self._warn("Failed to read input from the client socket: {}.\n", @errorName(err));
+            return err;
+        };
         if (read == 0) {
             // End of file reached.
             self._info("Client disconnected.\n");
