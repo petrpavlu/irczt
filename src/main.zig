@@ -287,7 +287,9 @@ const Client = struct {
     _addr: NetAddress,
 
     _write_file_out_stream: os.File.OutStream,
-    _write_stream: ?*io.OutStream(os.File.WriteError),
+    _write_stream: *io.OutStream(os.File.WriteError),
+    _read_file_in_stream: os.File.InStream,
+    _read_stream: *io.InStream(os.File.ReadError),
 
     const InputState = enum {
         Normal,
@@ -328,6 +330,8 @@ const Client = struct {
             ._addr = addr,
             ._write_file_out_stream = os.File.openHandle(fd).outStream(),
             ._write_stream = &client._write_file_out_stream.stream,
+            ._read_file_in_stream = os.File.openHandle(fd).inStream(),
+            ._read_stream = &client._read_file_in_stream.stream,
             ._input_state = Client.InputState.Normal,
             ._input_buffer = undefined,
             ._input_received = 0,
@@ -495,7 +499,8 @@ const Client = struct {
         self._info("> " ++ fmt ++ "\n", args);
         if (escape_cond != null)
             escape_cond.?.* = false;
-        try self._write_stream.?.print(fmt ++ "\r\n", args);
+        // TODO Log an error if the write fails.
+        try self._write_stream.print(fmt ++ "\r\n", args);
     }
 
     /// Process a single message from the client.
@@ -531,8 +536,8 @@ const Client = struct {
     fn processInput(self: *Client) !void {
         assert(self._input_received < self._input_buffer.len);
         var pos = self._input_received;
-        // TODO Use io.InStream.
-        const read = try os.posixRead(self._fd, self._input_buffer[pos..]);
+        // TODO Report an error if the read fails.
+        const read = try self._read_stream.read(self._input_buffer[pos..]);
         if (read == 0) {
             // End of file reached.
             self._info("Client disconnected.\n");
