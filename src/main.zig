@@ -533,7 +533,9 @@ const Client = struct {
         }
     }
 
-    fn processInput(self: *Client) !void {
+    /// Read new input available on client's socket and process it. A number of bytes read is
+    /// returned. Value 0 indicates end of file.
+    fn processInput(self: *Client) !usize {
         assert(self._input_received < self._input_buffer.len);
         var pos = self._input_received;
         // TODO Report an error if the read fails.
@@ -542,7 +544,7 @@ const Client = struct {
             // End of file reached.
             self._info("Client disconnected.\n");
             // TODO Report any unhandled data.
-            return error.ClientDisconnected;
+            return read;
         }
         self._input_received += read;
 
@@ -599,6 +601,7 @@ const Client = struct {
                 self._input_received = 0;
             },
         }
+        return read;
     }
 };
 
@@ -828,14 +831,17 @@ const Server = struct {
 
     /// Process input from a client.
     fn _processInput(self: *Server, epfd: i32, client: *Client) void {
-        client.processInput() catch {
-            const clientfd = client.getFileDescriptor();
-            os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_DEL, clientfd, undefined) catch unreachable;
+        const res = client.processInput() catch 0;
+        if (res != 0)
+            return;
 
-            const client_node = self._clients.lookup(client) orelse unreachable;
-            _ = self._clients.remove(client_node);
-            client.destroy();
-        };
+        // Destroy the client.
+        const clientfd = client.getFileDescriptor();
+        os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_DEL, clientfd, undefined) catch unreachable;
+
+        const client_node = self._clients.lookup(client) orelse unreachable;
+        _ = self._clients.remove(client_node);
+        client.destroy();
     }
 
     /// Create a new channel with the given name.
