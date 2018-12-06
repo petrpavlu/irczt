@@ -446,13 +446,18 @@ const Client = struct {
         assert(self._nickname_end != 0);
 
         const nickname = self._getNickName();
+        const hostname = self._server.getHostName();
         var ec: bool = undefined;
 
         // Send RPL_LUSERCLIENT.
         // TODO Fix user count.
-        try self._sendMessage(&ec, ":{} 251 {} :There are {} users and 0 invisible on 1 servers", self._server.getHostName(), CProtect(nickname, &ec), i32(1));
+        try self._sendMessage(&ec, ":{} 251 {} :There are {} users and 0 invisible on 1 servers", hostname, CProtect(nickname, &ec), i32(1));
 
-        // TODO Send motd.
+        // Send motd.
+        try self._sendMessage(&ec, ":{} 375 {} :- {} Message of the Day -", hostname, CProtect(nickname, &ec), hostname);
+        try self._sendMessage(&ec, ":{} 372 {} :- Welcome to the {} IRC network!", hostname, CProtect(nickname, &ec), hostname);
+        try self._sendMessage(&ec, ":{} 376 {} :End of /MOTD command.", hostname, CProtect(nickname, &ec));
+
         try self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", CProtect(nickname, &ec));
 
         self._registered = true;
