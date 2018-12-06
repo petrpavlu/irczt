@@ -303,7 +303,7 @@ const Client = struct {
 
     /// Flag indicating whether the initial USER and NICK pair was already received and the client
     /// is fully joined.
-    _joined: bool,
+    _registered: bool,
 
     const RealNameType = [512]u8;
     _realname: RealNameType,
@@ -335,7 +335,7 @@ const Client = struct {
             ._input_state = Client.InputState.Normal,
             ._input_buffer = undefined,
             ._input_received = 0,
-            ._joined = false,
+            ._registered = false,
             ._realname = []u8{0} ** Client.RealNameType.len,
             ._realname_end = 0,
             ._nickname = []u8{0} ** Client.NickNameType.len,
@@ -412,8 +412,8 @@ const Client = struct {
         // TODO Check there no more unexpected parameters.
 
         // Complete the join if the initial USER and NICK pair was already received.
-        if (!self._joined and self._nickname_end != 0)
-            try self._join();
+        if (!self._registered and self._nickname_end != 0)
+            try self._completeRegistration();
     }
 
     /// Process the NICK command.
@@ -435,13 +435,13 @@ const Client = struct {
         // TODO Check there no more unexpected parameters.
 
         // Complete the join if the initial USER and NICK pair was already received.
-        if (!self._joined and self._realname_end != 0)
-            try self._join();
+        if (!self._registered and self._realname_end != 0)
+            try self._completeRegistration();
     }
 
     /// Complete the client join after the initial USER and NICK pair is received.
-    fn _join(self: *Client) !void {
-        assert(!self._joined);
+    fn _completeRegistration(self: *Client) !void {
+        assert(!self._registered);
         assert(self._realname_end != 0);
         assert(self._nickname_end != 0);
 
@@ -455,13 +455,13 @@ const Client = struct {
         // TODO Send motd.
         try self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", CProtect(nickname, &ec));
 
-        self._joined = true;
+        self._registered = true;
     }
 
-    /// Check that the user has fully joined. If not then send ERR_NOTREGISTERED to the client and
-    /// return error.NotRegistered.
-    fn _checkJoined(self: *Client) !void {
-        if (self._joined)
+    /// Check whether the user has completed the initial registration and is fully joined. If not
+    /// then send ERR_NOTREGISTERED to the client and return error.NotRegistered.
+    fn _checkRegistered(self: *Client) !void {
+        if (self._registered)
             return;
         try self._sendMessage(null, ":{} 451 * :You have not registered", self._server.getHostName());
         return error.NotRegistered;
@@ -470,7 +470,7 @@ const Client = struct {
     /// Process the LIST command.
     /// Parameters: [<channel>{,<channel>} [<server>]]
     fn _processCommand_LIST(self: *Client, lexer: *Lexer) !void {
-        try self._checkJoined();
+        try self._checkRegistered();
 
         // TODO Parse the parameters.
 
