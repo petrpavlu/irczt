@@ -12,7 +12,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const config = @import("config.zig");
-const Set = @import("set.zig").Set;
+const set = @import("set.zig");
 
 const timestamp_str_width = "[18446744073709551.615]".len;
 
@@ -614,7 +614,7 @@ const Client = struct {
     }
 };
 
-const ClientSet = Set(Client);
+const ClientSet = set.Set(Client, set.PtrCmp(Client));
 
 const Channel = struct {
     _server: *Server,
@@ -659,7 +659,7 @@ const Channel = struct {
     }
 };
 
-const ChannelSet = Set(Channel);
+const ChannelSet = set.Set(Channel, set.PtrCmp(Channel));
 
 const Server = struct {
     _allocator: *Allocator,

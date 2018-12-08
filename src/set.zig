@@ -8,7 +8,25 @@ const rb = std.rb;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-pub fn Set(comptime T: type) type {
+pub fn PtrCmp(comptime T: type) fn (lhs: *const T, rhs: *const T) mem.Compare {
+    const Ptr = struct {
+        fn cmp(lhs: *const T, rhs: *const T) mem.Compare {
+            const lval = @ptrToInt(lhs);
+            const rval = @ptrToInt(rhs);
+
+            if (lval < rval) {
+                return mem.Compare.LessThan;
+            } else if (lval == rval) {
+                return mem.Compare.Equal;
+            } else {
+                return mem.Compare.GreaterThan;
+            }
+        }
+    };
+    return Ptr.cmp;
+}
+
+pub fn Set(comptime T: type, compare_fn: fn (*const T, *const T) mem.Compare) type {
     return struct {
         const Self = @This();
 
@@ -40,20 +58,7 @@ pub fn Set(comptime T: type) type {
                 return @fieldParentPtr(Node, "_rbnode", rbnode);
             }
 
-            fn _compare(lhs: *rb.Node, rhs: *rb.Node) mem.Compare {
-                var lval = @ptrToInt(_from(lhs).data);
-                var rval = @ptrToInt(_from(rhs).data);
-
-                if (lval < rval) {
-                    return mem.Compare.LessThan;
-                } else if (lval == rval) {
-                    return mem.Compare.Equal;
-                } else {
-                    return mem.Compare.GreaterThan;
-                }
-            }
-
-            fn next(self: *Node) ?*Node {
+            pub fn next(self: *Node) ?*Node {
                 return if (self._rbnode.next()) |next_rbnode| _from(next_rbnode) else null;
             }
         };
@@ -63,7 +68,7 @@ pub fn Set(comptime T: type) type {
                 ._tree = undefined,
                 ._allocator = allocator,
             };
-            set._tree.init(Node._compare);
+            set._tree.init(_compare);
             return set;
         }
 
@@ -75,6 +80,10 @@ pub fn Set(comptime T: type) type {
                 rbnode = rbnode.next();
                 node._destroy(self._allocator);
             }
+        }
+
+        fn _compare(lhs: *rb.Node, rhs: *rb.Node) mem.Compare {
+            return compare_fn(Node._from(lhs).data, Node._from(rhs).data);
         }
 
         pub fn first(set: *Self) ?*Node {
