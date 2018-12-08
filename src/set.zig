@@ -46,19 +46,19 @@ pub fn Set(comptime T: type, compare_fn: fn (*const T, *const T) mem.Compare) ty
         _allocator: *Allocator,
 
         const Node = struct {
-            data: *T,
+            _data: *T,
             _rbnode: rb.Node,
 
-            fn _init(data: *T) Node {
+            fn _init(d: *T) Node {
                 return Node{
-                    .data = data,
+                    ._data = d,
                     ._rbnode = undefined,
                 };
             }
 
-            fn _create(data: *T, allocator: *Allocator) !*Node {
+            fn _create(d: *T, allocator: *Allocator) !*Node {
                 const payload_node = try allocator.createOne(Node);
-                payload_node.* = _init(data);
+                payload_node.* = _init(d);
                 return payload_node;
             }
 
@@ -68,6 +68,10 @@ pub fn Set(comptime T: type, compare_fn: fn (*const T, *const T) mem.Compare) ty
 
             fn _from(rbnode: *rb.Node) *Node {
                 return @fieldParentPtr(Node, "_rbnode", rbnode);
+            }
+
+            pub fn data(self: *Node) *T {
+                return self._data;
             }
 
             pub fn next(self: *Node) ?*Node {
@@ -95,7 +99,7 @@ pub fn Set(comptime T: type, compare_fn: fn (*const T, *const T) mem.Compare) ty
         }
 
         fn _compare(lhs: *rb.Node, rhs: *rb.Node) mem.Compare {
-            return compare_fn(Node._from(lhs).data, Node._from(rhs).data);
+            return compare_fn(Node._from(lhs)._data, Node._from(rhs)._data);
         }
 
         pub fn first(self: *Self) ?*Node {

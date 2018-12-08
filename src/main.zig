@@ -489,7 +489,7 @@ const Client = struct {
         const channels = self._server.getChannels();
         var maybe_channel_node = channels.first();
         while (maybe_channel_node) |channel_node| : (maybe_channel_node = channel_node.next()) {
-            const channel = channel_node.data;
+            const channel = channel_node.data();
             try self._sendMessage(&ec, ":{} 322 {} {} {} :", self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel.getName(), &ec), channel.getUserCount());
         }
 
@@ -746,7 +746,7 @@ const Server = struct {
         // Destroy all clients.
         var maybe_client_node = self._clients.first();
         while (maybe_client_node) |client_node| {
-            const client = client_node.data;
+            const client = client_node.data();
             maybe_client_node = self._clients.remove(client_node);
             client.destroy();
         }
@@ -755,7 +755,7 @@ const Server = struct {
         // Destroy all channels.
         var maybe_channel_node = self._channels.first();
         while (maybe_channel_node) |channel_node| {
-            const channel = channel_node.data;
+            const channel = channel_node.data();
             maybe_channel_node = self._channels.remove(channel_node);
             channel.destroy();
         }
@@ -893,7 +893,7 @@ const Server = struct {
     fn lookupChannel(self: *Server, name: []const u8) ?*Channel {
         var ref = ChannelName{ .slice = name };
         const channel_node = self._channels_by_name.lookup(&ref) orelse return null;
-        return Channel.fromChannelName(channel_node.data);
+        return Channel.fromChannelName(channel_node.data());
     }
 
     fn createAutoUser(self: *Server, name: []const u8) void {
