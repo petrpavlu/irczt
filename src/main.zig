@@ -616,10 +616,16 @@ const Client = struct {
 
 const ClientSet = set.Set(Client, set.PtrCmp(Client));
 
+const ChannelName = struct {
+    slice: []const u8,
+};
+
+const ChannelNameSet = set.Set(ChannelName, set.StrCmp(ChannelName, "slice"));
+
 const Channel = struct {
     _server: *Server,
     _allocator: *Allocator,
-    _name: []const u8,
+    _name: ChannelName,
 
     /// Create a new channel with the given name.
     fn create(name: []const u8, server: *Server, allocator: *Allocator) !*Channel {
@@ -639,18 +645,26 @@ const Channel = struct {
         channel.* = Channel{
             ._server = server,
             ._allocator = allocator,
-            ._name = name,
+            ._name = ChannelName{ .slice = name },
         };
         return channel;
     }
 
     fn destroy(self: *Channel) void {
-        self._allocator.free(self._name);
+        self._allocator.free(self._name.slice);
         self._allocator.destroy(self);
     }
 
+    fn getChannelName(self: *Channel) *ChannelName {
+        return &self._name;
+    }
+
+    fn fromChannelName(name: *ChannelName) *Channel {
+        return @fieldParentPtr(Channel, "_name", name);
+    }
+
     fn getName(self: *const Channel) []const u8 {
-        return self._name;
+        return self._name.slice;
     }
 
     fn getUserCount(self: *const Channel) usize {
@@ -670,6 +684,7 @@ const Server = struct {
 
     _clients: ClientSet,
     _channels: ChannelSet,
+    _channels_by_name: ChannelNameSet,
 
     fn create(address: []const u8, allocator: *Allocator) !*Server {
         // Parse the address.
@@ -722,6 +737,7 @@ const Server = struct {
             ._port = port_copy,
             ._clients = ClientSet.init(allocator),
             ._channels = ChannelSet.init(allocator),
+            ._channels_by_name = ChannelNameSet.init(allocator),
         };
         return server;
     }
@@ -734,6 +750,7 @@ const Server = struct {
             maybe_client_node = self._clients.remove(client_node);
             client.destroy();
         }
+        self._clients.deinit();
 
         // Destroy all channels.
         var maybe_channel_node = self._channels.first();
@@ -742,6 +759,8 @@ const Server = struct {
             maybe_channel_node = self._channels.remove(channel_node);
             channel.destroy();
         }
+        self._channels.deinit();
+        self._channels_by_name.deinit();
 
         self._allocator.free(self._host);
         self._allocator.free(self._port);
@@ -822,10 +841,10 @@ const Server = struct {
         errdefer client.destroy();
 
         const client_node = self._clients.insert(client) catch |err| {
-            warn("{}: Failed to insert a client in the set of clients: {}.\n", client_addr, @errorName(err));
+            warn("{}: Failed to insert a client in the main client set: {}.\n", client_addr, @errorName(err));
             return;
         };
-        errdefer self._clients.remove(client_node);
+        errdefer _ = self._clients.remove(client_node);
 
         // Listen for the client.
         var clientfd_event = os.posix.epoll_event{
@@ -858,10 +877,23 @@ const Server = struct {
         const channel = try Channel.create(name, self, self._allocator);
         errdefer channel.destroy();
 
-        _ = self._channels.insert(channel) catch |err| {
-            warn("Failed to insert a channel in the set of channels: {}.\n", @errorName(err));
+        const channel_node = self._channels.insert(channel) catch |err| {
+            warn("Failed to insert a channel in the main channel set: {}.\n", @errorName(err));
             return err;
         };
+        errdefer _ = self._channels.remove(channel_node);
+
+        _ = self._channels_by_name.insert(channel.getChannelName()) catch |err| {
+            warn("Failed to insert a channel in the by-name channel set: {}.\n", @errorName(err));
+            return err;
+        };
+    }
+
+    /// Find a channel by name.
+    fn lookupChannel(self: *Server, name: []const u8) ?*Channel {
+        var ref = ChannelName{ .slice = name };
+        const channel_node = self._channels_by_name.lookup(&ref) orelse return null;
+        return Channel.fromChannelName(channel_node.data);
     }
 
     fn createAutoUser(self: *Server, name: []const u8) void {

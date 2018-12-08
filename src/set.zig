@@ -8,7 +8,7 @@ const rb = std.rb;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-pub fn PtrCmp(comptime T: type) fn (lhs: *const T, rhs: *const T) mem.Compare {
+pub fn PtrCmp(comptime T: type) fn (*const T, *const T) mem.Compare {
     const Ptr = struct {
         fn cmp(lhs: *const T, rhs: *const T) mem.Compare {
             const lval = @ptrToInt(lhs);
@@ -24,6 +24,18 @@ pub fn PtrCmp(comptime T: type) fn (lhs: *const T, rhs: *const T) mem.Compare {
         }
     };
     return Ptr.cmp;
+}
+
+pub fn StrCmp(comptime T: type, comptime field_name: []const u8) fn (*const T, *const T) mem.Compare {
+    const Str = struct {
+        fn cmp(lhs: *const T, rhs: *const T) mem.Compare {
+            const lval = @field(lhs, field_name);
+            const rval = @field(rhs, field_name);
+
+            return mem.compare(u8, lval, rval);
+        }
+    };
+    return Str.cmp;
 }
 
 pub fn Set(comptime T: type, compare_fn: fn (*const T, *const T) mem.Compare) type {
@@ -72,12 +84,12 @@ pub fn Set(comptime T: type, compare_fn: fn (*const T, *const T) mem.Compare) ty
             return set;
         }
 
-        pub fn deinit(set: *Self) void {
+        pub fn deinit(self: *Self) void {
             // Free all allocated nodes.
-            var rbnode = self._tree.first();
-            while (rbnode != null) {
+            var maybe_rbnode = self._tree.first();
+            while (maybe_rbnode) |rbnode| {
                 const node = Node._from(rbnode);
-                rbnode = rbnode.next();
+                maybe_rbnode = rbnode.next();
                 node._destroy(self._allocator);
             }
         }
@@ -86,30 +98,30 @@ pub fn Set(comptime T: type, compare_fn: fn (*const T, *const T) mem.Compare) ty
             return compare_fn(Node._from(lhs).data, Node._from(rhs).data);
         }
 
-        pub fn first(set: *Self) ?*Node {
-            return if (set._tree.first()) |rbnode| Node._from(rbnode) else null;
+        pub fn first(self: *Self) ?*Node {
+            return if (self._tree.first()) |rbnode| Node._from(rbnode) else null;
         }
 
-        pub fn last(set: *Self) ?*Node {
-            return if (set._tree.last()) |rbnode| Node._from(rbnode) else null;
+        pub fn last(self: *Self) ?*Node {
+            return if (self._tree.last()) |rbnode| Node._from(rbnode) else null;
         }
 
-        pub fn insert(set: *Self, data: *T) !*Node {
-            const node = try Node._create(data, set._allocator);
-            const rbnode = set._tree.insert(&node._rbnode);
+        pub fn insert(self: *Self, data: *T) !*Node {
+            const node = try Node._create(data, self._allocator);
+            const rbnode = self._tree.insert(&node._rbnode);
             assert(rbnode == null);
             return node;
         }
 
-        pub fn lookup(set: *Self, data: *T) ?*Node {
+        pub fn lookup(self: *Self, data: *T) ?*Node {
             var node = Node._init(data);
-            return if (set._tree.lookup(&node._rbnode)) |rbnode| Node._from(rbnode) else null;
+            return if (self._tree.lookup(&node._rbnode)) |rbnode| Node._from(rbnode) else null;
         }
 
-        pub fn remove(set: *Self, node: *Node) ?*Node {
+        pub fn remove(self: *Self, node: *Node) ?*Node {
             const next_node: ?*Node = if (node._rbnode.next()) |next_rbnode| Node._from(next_rbnode) else null;
-            set._tree.remove(&node._rbnode);
-            node._destroy(set._allocator);
+            self._tree.remove(&node._rbnode);
+            node._destroy(self._allocator);
             return next_node;
         }
     };
