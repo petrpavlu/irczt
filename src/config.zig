@@ -14,7 +14,7 @@ pub const channels = [][]const u8 {
 };
 
 /// Fake local users.
-pub const auto_users = [][]const u8 {
+pub const local_bots = [][]const u8 {
     "Abigail",
     "Albert",
     "Alice",

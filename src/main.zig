@@ -896,7 +896,7 @@ const Server = struct {
         return Channel.fromChannelName(channel_node.data());
     }
 
-    fn createAutoUser(self: *Server, name: []const u8) void {
+    fn createLocalBot(self: *Server, name: []const u8) void {
         // TODO
     }
 };
@@ -915,8 +915,8 @@ pub fn main() u8 {
     // Create pre-defined channels and automatic users.
     for (config.channels) |channel|
         server.createChannel(channel) catch return 1;
-    for (config.auto_users) |auto_user|
-        server.createAutoUser(auto_user);
+    for (config.local_bots) |local_bot|
+        server.createLocalBot(local_bot);
 
     // Run the server.
     server.run() catch return 1;
