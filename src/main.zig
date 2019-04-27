@@ -10,6 +10,7 @@ const os = std.os;
 
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const config = @import("config.zig");
 const set = @import("set.zig");
@@ -43,25 +44,25 @@ test "format timestamp" {
     var buffer: [timestamp_str_width]u8 = undefined;
 
     formatTimeStamp(&buffer, 0);
-    assert(mem.eql(u8, buffer, "[                0.000]"));
+    expect(mem.eql(u8, buffer, "[                0.000]"));
 
     formatTimeStamp(&buffer, 1);
-    assert(mem.eql(u8, buffer, "[                0.001]"));
+    expect(mem.eql(u8, buffer, "[                0.001]"));
 
     formatTimeStamp(&buffer, 100);
-    assert(mem.eql(u8, buffer, "[                0.100]"));
+    expect(mem.eql(u8, buffer, "[                0.100]"));
 
     formatTimeStamp(&buffer, 1000);
-    assert(mem.eql(u8, buffer, "[                1.000]"));
+    expect(mem.eql(u8, buffer, "[                1.000]"));
 
     formatTimeStamp(&buffer, 10000);
-    assert(mem.eql(u8, buffer, "[               10.000]"));
+    expect(mem.eql(u8, buffer, "[               10.000]"));
 
     formatTimeStamp(&buffer, 1234567890);
-    assert(mem.eql(u8, buffer, "[          1234567.890]"));
+    expect(mem.eql(u8, buffer, "[          1234567.890]"));
 
     formatTimeStamp(&buffer, 18446744073709551615);
-    assert(mem.eql(u8, buffer, "[18446744073709551.615]"));
+    expect(mem.eql(u8, buffer, "[18446744073709551.615]"));
 }
 
 var stdout_file_out_stream: os.File.OutStream = undefined;
@@ -132,8 +133,8 @@ const NetAddress = struct {
     ) FmtError!void {
         assert(self._addr.os_addr.in.family == os.posix.AF_INET);
 
-        const native_endian_port = mem.endianSwapIfLe(u16, self._addr.os_addr.in.port);
-        const bytes = @sliceToBytes((*[1]u32)(&self._addr.os_addr.in.addr)[0..]);
+        const native_endian_port = mem.bigToNative(u16, self._addr.os_addr.in.port);
+        const bytes = @sliceToBytes(@ptrCast(*const [1]u32, &self._addr.os_addr.in.addr)[0..]);
 
         var tmp: [5]u8 = undefined;
         try output(context, formatU16(&tmp, bytes[0]));
@@ -319,7 +320,7 @@ const Client = struct {
 
         info("{}: Accepted a new client.\n", addr);
 
-        const client = allocator.createOne(Client) catch |err| {
+        const client = allocator.create(Client) catch |err| {
             warn("{}: Failed to allocate a client instance: {}.\n", addr, @errorName(err));
             return err;
         };
@@ -638,7 +639,7 @@ const Channel = struct {
         mem.copy(u8, name_copy, name);
 
         // Allocate a channel instance.
-        const channel = allocator.createOne(Channel) catch |err| {
+        const channel = allocator.create(Channel) catch |err| {
             warn("Failed to allocate a channel instance: {}.\n", @errorName(err));
             return err;
         };
@@ -726,7 +727,7 @@ const Server = struct {
         mem.copy(u8, port_copy, port);
 
         // Allocate the server struct.
-        const server = allocator.createOne(Server) catch |err| {
+        const server = allocator.create(Server) catch |err| {
             warn("Failed to allocate a server instance: {}.\n", @errorName(err));
             return err;
         };

@@ -57,7 +57,7 @@ pub fn Set(comptime T: type, compare_fn: fn (*const T, *const T) mem.Compare) ty
             }
 
             fn _create(d: *T, allocator: *Allocator) !*Node {
-                const payload_node = try allocator.createOne(Node);
+                const payload_node = try allocator.create(Node);
                 payload_node.* = _init(d);
                 return payload_node;
             }

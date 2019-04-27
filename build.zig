@@ -10,9 +10,8 @@ pub fn build(b: *Builder) void {
     exe.linkSystemLibrary("c");
 
     const run_step = b.step("run", "Run the app");
-    const run_cmd = b.addCommand(".", b.env_map, [][]const u8{exe.getOutputPath()});
+    const run_cmd = exe.run();
     run_step.dependOn(&run_cmd.step);
-    run_cmd.step.dependOn(&exe.step);
 
     const test_step = b.step("test", "Run all the tests");
     const test_test = b.addTest("src/main.zig");
