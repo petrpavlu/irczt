@@ -178,7 +178,7 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             return Iterator{ ._node = node };
         }
 
-        pub fn remove(self: *Self, iter: *const Iterator) void {
+        pub fn remove(self: *Self, iter: Iterator) void {
             const node = iter._node.?;
             const maybe_left_node = node._left;
             const maybe_right_node = node._right;
@@ -784,7 +784,7 @@ test "remove - 2 children - immediate successor" {
     expect(node3._right == null);
     expect(node3._balance == 0);
 
-    ismap.remove(&iter1);
+    ismap.remove(iter1);
     expect(ismap._root == node2);
     expect(ismap._size == 3);
     expect(node0._parent == node2);
@@ -835,7 +835,7 @@ test "remove - 2 children - non-immediate successor" {
     expect(node3._right == null);
     expect(node3._balance == -1);
 
-    ismap.remove(&iter1);
+    ismap.remove(iter1);
     expect(ismap._root == node2);
     expect(ismap._size == 3);
     expect(node0._parent == node2);
@@ -874,7 +874,7 @@ test "remove - 1 child - left" {
     expect(node1._right == null);
     expect(node1._balance == -1);
 
-    ismap.remove(&iter1);
+    ismap.remove(iter1);
     expect(ismap._root == node0);
     expect(ismap._size == 1);
     expect(node0._parent == null);
@@ -905,7 +905,7 @@ test "remove - 1 child - right" {
     expect(node1._right == null);
     expect(node1._balance == 0);
 
-    ismap.remove(&iter0);
+    ismap.remove(iter0);
     expect(ismap._root == node1);
     expect(ismap._size == 1);
     expect(node1._parent == null);
@@ -930,7 +930,7 @@ test "remove - 0 children" {
     expect(node0._right == null);
     expect(node0._balance == 0);
 
-    ismap.remove(&iter0);
+    ismap.remove(iter0);
     expect(ismap._root == null);
     expect(ismap._size == 0);
 }
@@ -969,7 +969,7 @@ test "remove - rebalance - new=-2, left=-1" {
     expect(node3._right == null);
     expect(node3._balance == 0);
 
-    ismap.remove(&iter3);
+    ismap.remove(iter3);
     expect(ismap._root == node1);
     expect(ismap._size == 3);
     expect(node0._parent == node1);
@@ -1026,7 +1026,7 @@ test "remove - rebalance - new=-2, left=0" {
     expect(node4._right == null);
     expect(node4._balance == 0);
 
-    ismap.remove(&iter4);
+    ismap.remove(iter4);
     expect(ismap._root == node1);
     expect(ismap._size == 4);
     expect(node0._parent == node1);
@@ -1081,7 +1081,7 @@ test "remove - rebalance - new=-2, left=1" {
     expect(node3._right == null);
     expect(node3._balance == 0);
 
-    ismap.remove(&iter3);
+    ismap.remove(iter3);
     expect(ismap._root == node1);
     expect(ismap._size == 3);
     expect(node0._parent == node1);
@@ -1132,7 +1132,7 @@ test "remove - rebalance - new=2, right=1" {
     expect(node3._right == null);
     expect(node3._balance == 0);
 
-    ismap.remove(&iter0);
+    ismap.remove(iter0);
     expect(ismap._root == node2);
     expect(ismap._size == 3);
     expect(node1._parent == node2);
@@ -1189,7 +1189,7 @@ test "remove - rebalance - new=2, right=0" {
     expect(node4._right == null);
     expect(node4._balance == 0);
 
-    ismap.remove(&iter0);
+    ismap.remove(iter0);
     expect(ismap._root == node3);
     expect(ismap._size == 4);
     expect(node1._parent == node3);
@@ -1244,7 +1244,7 @@ test "remove - rebalance - new=2, right=-1" {
     expect(node3._right == null);
     expect(node3._balance == -1);
 
-    ismap.remove(&iter0);
+    ismap.remove(iter0);
     expect(ismap._root == node2);
     expect(ismap._size == 3);
     expect(node1._parent == node2);
@@ -1289,7 +1289,7 @@ test "remove - rebalance - new=-1" {
     expect(node2._right == null);
     expect(node2._balance == 0);
 
-    ismap.remove(&iter2);
+    ismap.remove(iter2);
     expect(ismap._root == node1);
     expect(ismap._size == 2);
     expect(node0._parent == node1);
@@ -1330,7 +1330,7 @@ test "remove - rebalance - new=1" {
     expect(node2._right == null);
     expect(node2._balance == 0);
 
-    ismap.remove(&iter0);
+    ismap.remove(iter0);
     expect(ismap._root == node1);
     expect(ismap._size == 2);
     expect(node1._parent == null);
@@ -1377,7 +1377,7 @@ test "remove - rebalance - new=0" {
     expect(node3._right == null);
     expect(node3._balance == 0);
 
-    ismap.remove(&iter0);
+    ismap.remove(iter0);
     expect(ismap._root == node2);
     expect(ismap._size == 3);
     expect(node1._parent == node2);
