@@ -281,6 +281,7 @@ const Lexer = struct {
     }
 };
 
+/// Remote client.
 const Client = struct {
     _server: *Server,
     _allocator: *Allocator,
@@ -618,6 +619,7 @@ const Client = struct {
 const ClientSet = set.Set(Client, set.PtrCmp(Client));
 
 const ChannelName = struct {
+    /// Channel name.
     slice: []const u8,
 };
 
@@ -626,6 +628,8 @@ const ChannelNameSet = set.Set(ChannelName, set.StrCmp(ChannelName, "slice"));
 const Channel = struct {
     _server: *Server,
     _allocator: *Allocator,
+
+    /// Channel name (_name.slice is owned).
     _name: ChannelName,
 
     /// Create a new channel with the given name.
@@ -679,12 +683,22 @@ const ChannelSet = set.Set(Channel, set.PtrCmp(Channel));
 const Server = struct {
     _allocator: *Allocator,
 
+    /// Socket address.
     _sockaddr: net.Address,
+
+    /// Host name (owned).
     _host: []const u8,
+
+    /// Port number (owned).
     _port: []const u8,
 
+    /// Remote clients (owned).
     _clients: ClientSet,
+
+    /// Channels (owned).
     _channels: ChannelSet,
+
+    /// Channels organized for fast lookup by name.
     _channels_by_name: ChannelNameSet,
 
     fn create(address: []const u8, allocator: *Allocator) !*Server {
