@@ -14,8 +14,10 @@ pub fn build(b: *Builder) void {
     run_step.dependOn(&run_cmd.step);
 
     const test_step = b.step("test", "Run all the tests");
-    const test_test = b.addTest("src/main.zig");
-    test_step.dependOn(&test_test.step);
+    const test_main = b.addTest("src/main.zig");
+    test_step.dependOn(&test_main.step);
+    const test_avl = b.addTest("src/avl.zig");
+    test_step.dependOn(&test_avl.step);
 
     b.default_step.dependOn(&exe.step);
     b.installArtifact(exe);
