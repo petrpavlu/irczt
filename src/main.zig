@@ -12,8 +12,8 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
+const avl = @import("avl.zig");
 const config = @import("config.zig");
-const set = @import("set.zig");
 
 const timestamp_str_width = "[18446744073709551.615]".len;
 
@@ -489,9 +489,9 @@ const Client = struct {
 
         // Send RPL_LIST for each channel.
         const channels = self._server.getChannels();
-        var maybe_channel_node = channels.first();
-        while (maybe_channel_node) |channel_node| : (maybe_channel_node = channel_node.next()) {
-            const channel = channel_node.data();
+        var channel_iter = channels.iterator();
+        while (channel_iter.next()) |channel_node| {
+            const channel = channel_node.key();
             try self._sendMessage(&ec, ":{} 322 {} {} {} :", self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel.getName(), &ec), channel.getUserCount());
         }
 
@@ -616,21 +616,21 @@ const Client = struct {
     }
 };
 
-const ClientSet = set.Set(Client, set.PtrCmp(Client));
+const ClientSet = avl.Map(*Client, void, avl.getLessThanFn(*Client));
 
 const ChannelName = struct {
     /// Channel name.
     slice: []const u8,
 };
 
-const ChannelNameSet = set.Set(ChannelName, set.StrCmp(ChannelName, "slice"));
+const ChannelNameSet = avl.Map([]const u8, *Channel, avl.getLessThanFn([]const u8));
 
 const Channel = struct {
     _server: *Server,
     _allocator: *Allocator,
 
-    /// Channel name (_name.slice is owned).
-    _name: ChannelName,
+    /// Channel name (owned).
+    _name: []const u8,
 
     /// Create a new channel with the given name.
     fn create(name: []const u8, server: *Server, allocator: *Allocator) !*Channel {
@@ -650,26 +650,18 @@ const Channel = struct {
         channel.* = Channel{
             ._server = server,
             ._allocator = allocator,
-            ._name = ChannelName{ .slice = name },
+            ._name = name_copy,
         };
         return channel;
     }
 
     fn destroy(self: *Channel) void {
-        self._allocator.free(self._name.slice);
+        self._allocator.free(self._name);
         self._allocator.destroy(self);
     }
 
-    fn getChannelName(self: *Channel) *ChannelName {
-        return &self._name;
-    }
-
-    fn fromChannelName(name: *ChannelName) *Channel {
-        return @fieldParentPtr(Channel, "_name", name);
-    }
-
     fn getName(self: *const Channel) []const u8 {
-        return self._name.slice;
+        return self._name;
     }
 
     fn getUserCount(self: *const Channel) usize {
@@ -678,7 +670,7 @@ const Channel = struct {
     }
 };
 
-const ChannelSet = set.Set(Channel, set.PtrCmp(Channel));
+const ChannelSet = avl.Map(*Channel, void, avl.getLessThanFn(*Channel));
 
 const Server = struct {
     _allocator: *Allocator,
@@ -759,19 +751,17 @@ const Server = struct {
 
     fn destroy(self: *Server) void {
         // Destroy all clients.
-        var maybe_client_node = self._clients.first();
-        while (maybe_client_node) |client_node| {
-            const client = client_node.data();
-            maybe_client_node = self._clients.remove(client_node);
+        var client_iter = self._clients.iterator();
+        while (client_iter.next()) |client_node| {
+            const client = client_node.key();
             client.destroy();
         }
         self._clients.deinit();
 
         // Destroy all channels.
-        var maybe_channel_node = self._channels.first();
-        while (maybe_channel_node) |channel_node| {
-            const channel = channel_node.data();
-            maybe_channel_node = self._channels.remove(channel_node);
+        var channel_iter = self._channels.iterator();
+        while (channel_iter.next()) |channel_node| {
+            const channel = channel_node.key();
             channel.destroy();
         }
         self._channels.deinit();
@@ -855,11 +845,11 @@ const Server = struct {
         const client = Client.create(clientfd, client_addr, self, self._allocator) catch return;
         errdefer client.destroy();
 
-        const client_node = self._clients.insert(client) catch |err| {
+        const client_iter = self._clients.insert(client, {}) catch |err| {
             warn("{}: Failed to insert a client in the main client set: {}.\n", client_addr, @errorName(err));
             return;
         };
-        errdefer _ = self._clients.remove(client_node);
+        errdefer self._clients.remove(client_iter);
 
         // Listen for the client.
         var clientfd_event = os.posix.epoll_event{
@@ -882,8 +872,9 @@ const Server = struct {
         const clientfd = client.getFileDescriptor();
         os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_DEL, clientfd, undefined) catch unreachable;
 
-        const client_node = self._clients.lookup(client) orelse unreachable;
-        _ = self._clients.remove(client_node);
+        const client_iter = self._clients.find(client);
+        assert(client_iter.valid());
+        self._clients.remove(client_iter);
         client.destroy();
     }
 
@@ -892,13 +883,13 @@ const Server = struct {
         const channel = try Channel.create(name, self, self._allocator);
         errdefer channel.destroy();
 
-        const channel_node = self._channels.insert(channel) catch |err| {
+        const channel_iter = self._channels.insert(channel, {}) catch |err| {
             warn("Failed to insert a channel in the main channel set: {}.\n", @errorName(err));
             return err;
         };
-        errdefer _ = self._channels.remove(channel_node);
+        errdefer self._channels.remove(channel_iter);
 
-        _ = self._channels_by_name.insert(channel.getChannelName()) catch |err| {
+        _ = self._channels_by_name.insert(channel.getName(), channel) catch |err| {
             warn("Failed to insert a channel in the by-name channel set: {}.\n", @errorName(err));
             return err;
         };
@@ -906,9 +897,8 @@ const Server = struct {
 
     /// Find a channel by name.
     fn lookupChannel(self: *Server, name: []const u8) ?*Channel {
-        var ref = ChannelName{ .slice = name };
-        const channel_node = self._channels_by_name.lookup(&ref) orelse return null;
-        return Channel.fromChannelName(channel_node.data());
+        const channel_iter = self._channels_by_name.find(name);
+        return if (channel_iter.valid()) channel_iter.value() else null;
     }
 
     fn createLocalBot(self: *Server, name: []const u8) void {

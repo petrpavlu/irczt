@@ -1,6 +1,7 @@
 // Copyright (C) 2019 Petr Pavlu <setup@dagobah.cz>
 // SPDX-License-Identifier: MIT
 
+const builtin = @import("builtin");
 const std = @import("std");
 const mem = std.mem;
 
@@ -527,9 +528,21 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
     };
 }
 
-fn getLessThanFn(comptime T: type) fn (T, T) bool {
+pub fn getLessThanFn(comptime T: type) fn (T, T) bool {
     return struct {
         fn lessThan(lhs: T, rhs: T) bool {
+            switch (@typeInfo(T)) {
+                builtin.TypeId.Pointer => |ptr_info| switch (ptr_info.size) {
+                    builtin.TypeInfo.Pointer.Size.One => {
+                        return @ptrToInt(lhs) < @ptrToInt(rhs);
+                    },
+                    builtin.TypeInfo.Pointer.Size.Slice => {
+                        return mem.lessThan(ptr_info.child, lhs, rhs);
+                    },
+                    else => {},
+                },
+                else => {},
+            }
             return lhs < rhs;
         }
     }.lessThan;
