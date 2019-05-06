@@ -675,8 +675,6 @@ const Client = struct {
 
 const ClientSet = avl.Map(*Client, void, avl.getLessThanFn(*Client));
 
-const ChannelNameSet = avl.Map([]const u8, *Channel, avl.getLessThanFn([]const u8));
-
 const Channel = struct {
     _server: *Server,
     _allocator: *Allocator,
@@ -745,6 +743,8 @@ const Channel = struct {
 };
 
 const ChannelSet = avl.Map(*Channel, void, avl.getLessThanFn(*Channel));
+
+const ChannelNameSet = avl.Map([]const u8, *Channel, avl.getLessThanFn([]const u8));
 
 const Server = struct {
     _allocator: *Allocator,
