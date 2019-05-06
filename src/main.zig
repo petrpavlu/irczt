@@ -281,10 +281,38 @@ const Lexer = struct {
     }
 };
 
+const User = struct {
+    const Type = enum {
+        Client,
+        LocalBot,
+    };
+
+    type_: Type,
+
+    /// Get the preferred user name.
+    fn getName(self: *const User) []const u8 {
+        switch (self.type_) {
+            User.Type.Client => {
+                return Client.fromConstUser(self).getNickName();
+            },
+            User.Type.LocalBot => {
+                // TODO Implement.
+                unreachable;
+            },
+        }
+    }
+};
+
+const UserSet = avl.Map(*User, void, avl.getLessThanFn(*User));
+
 /// Remote client.
 const Client = struct {
     _server: *Server,
     _allocator: *Allocator,
+
+    /// User definition.
+    _user: User,
+
     _fd: i32,
     _addr: NetAddress,
 
@@ -328,6 +356,7 @@ const Client = struct {
         client.* = Client{
             ._server = server,
             ._allocator = allocator,
+            ._user = User{ .type_ = User.Type.Client },
             ._fd = fd,
             ._addr = addr,
             ._write_file_out_stream = os.File.openHandle(fd).outStream(),
@@ -353,18 +382,23 @@ const Client = struct {
         self._allocator.destroy(self);
     }
 
+    fn fromConstUser(user: *const User) *const Client {
+        assert(user.type_ == User.Type.Client);
+        return @fieldParentPtr(Client, "_user", user);
+    }
+
     /// Get the clien file descriptor.
     fn getFileDescriptor(self: *const Client) i32 {
         return self._fd;
     }
 
     /// Get a slice with the client's real name.
-    fn _getRealName(self: *const Client) []const u8 {
+    fn getRealName(self: *const Client) []const u8 {
         return self._realname[0..self._realname_end];
     }
 
     /// Get a slice with the client's nick name.
-    fn _getNickName(self: *const Client) []const u8 {
+    fn getNickName(self: *const Client) []const u8 {
         return self._nickname[0..self._nickname_end];
     }
 
@@ -447,7 +481,7 @@ const Client = struct {
         assert(self._realname_end != 0);
         assert(self._nickname_end != 0);
 
-        const nickname = self._getNickName();
+        const nickname = self.getNickName();
         const hostname = self._server.getHostName();
         var ec: bool = undefined;
 
@@ -481,7 +515,7 @@ const Client = struct {
 
         // TODO Parse the parameters.
 
-        const nickname = self._getNickName();
+        const nickname = self.getNickName();
         var ec: bool = undefined;
 
         // Send RPL_LISTSTART.
@@ -497,6 +531,27 @@ const Client = struct {
 
         // Send RPL_LISTEND.
         try self._sendMessage(&ec, ":{} 323 {} :End of /LIST", self._server.getHostName(), CProtect(nickname, &ec));
+    }
+
+    /// Process the JOIN command.
+    /// Parameters: <channel>{,<channel>} [<key>{,<key>}]
+    fn _processCommand_JOIN(self: *Client, lexer: *Lexer) !void {
+        try self._checkRegistered();
+
+        // TODO Parse all parameters.
+        const channel_name = try self._acceptParam(lexer, "<channel>");
+
+        const nickname = self.getNickName();
+        var ec: bool = undefined;
+
+        const channel = self._server.lookupChannel(channel_name) orelse {
+            // Send ERR_NOSUCHCHANNEL.
+            try self._sendMessage(&ec, ":{} 403 {} {} :No such channel", self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec));
+            return;
+        };
+        // TODO Record joined channels.
+        // TODO Report any error to the client.
+        try channel.join(&self._user);
     }
 
     /// Send a message to the client.
@@ -533,6 +588,8 @@ const Client = struct {
             res = self._processCommand_NICK(&lexer);
         } else if (mem.eql(u8, command, "LIST")) {
             res = self._processCommand_LIST(&lexer);
+        } else if (mem.eql(u8, command, "JOIN")) {
+            res = self._processCommand_JOIN(&lexer);
         } else
             self._warn("Unrecognized command: {}\n", Protect(command));
 
@@ -632,6 +689,9 @@ const Channel = struct {
     /// Channel name (owned).
     _name: []const u8,
 
+    /// Users in the channel.
+    _users: UserSet,
+
     /// Create a new channel with the given name.
     fn create(name: []const u8, server: *Server, allocator: *Allocator) !*Channel {
         // Make a copy of the name string.
@@ -651,11 +711,13 @@ const Channel = struct {
             ._server = server,
             ._allocator = allocator,
             ._name = name_copy,
+            ._users = UserSet.init(allocator),
         };
         return channel;
     }
 
     fn destroy(self: *Channel) void {
+        // TODO Process _users.
         self._allocator.free(self._name);
         self._allocator.destroy(self);
     }
@@ -665,8 +727,25 @@ const Channel = struct {
     }
 
     fn getUserCount(self: *const Channel) usize {
-        // TODO Implement.
-        return 0;
+        return self._users.count();
+    }
+
+    fn _info(self: *Channel, comptime fmt: []const u8, args: ...) void {
+        info("{}: " ++ fmt, Protect(self._name), args);
+    }
+
+    fn _warn(self: *Channel, comptime fmt: []const u8, args: ...) void {
+        warn("{}: " ++ fmt, Protect(self._name), args);
+    }
+
+    fn join(self: *Channel, user: *User) !void {
+        // TODO Fix handling of duplicated join.
+        _ = self._users.insert(user, {}) catch |err| {
+            self._warn("Failed to insert user {} in the channel user set: {}.\n", Protect(user.getName()), @errorName(err));
+            return err;
+        };
+        // TODO Inform other clients about the join.
+        self._info("User {} joined the channel.\n", Protect(user.getName()));
     }
 };
 
