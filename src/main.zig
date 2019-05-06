@@ -798,19 +798,30 @@ const Server = struct {
             return err;
         };
 
-        // Create an epoll instance and register the server socket with it.
+        // Create an epoll instance.
         const epfd = os.linuxEpollCreate(os.posix.EPOLL_CLOEXEC) catch |err| {
             warn("Failed to create an epoll instance: {}.\n", @errorName(err));
             return err;
         };
         defer os.close(epfd);
 
+        // Register the server socket with the epoll instance.
         var listenfd_event = os.posix.epoll_event{
             .events = os.posix.EPOLLIN,
             .data = os.posix.epoll_data{ .ptr = 0 },
         };
         os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, listenfd, &listenfd_event) catch |err| {
             warn("Failed to add the server socket (file descriptor {}) to the epoll instance: {}.\n", listenfd, @errorName(err));
+            return err;
+        };
+
+        // Register the standard input with the epoll instance.
+        var stdinfd_event = os.posix.epoll_event{
+            .events = os.posix.EPOLLIN,
+            .data = os.posix.epoll_data{ .ptr = 1 },
+        };
+        os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, os.posix.STDIN_FILENO, &stdinfd_event) catch |err| {
+            warn("Failed to add the standard input to the epoll instance: {}.\n", @errorName(err));
             return err;
         };
 
@@ -823,10 +834,15 @@ const Server = struct {
                 continue;
 
             // Handle the event.
-            if (events[0].data.ptr == 0) {
-                self._acceptClient(epfd, listenfd);
-            } else
-                self._processInput(epfd, @intToPtr(*Client, events[0].data.ptr));
+            switch (events[0].data.ptr) {
+                0 => self._acceptClient(epfd, listenfd),
+                1 => {
+                    // Exit on any input on stdin.
+                    info("Exit request from the standard input.\n");
+                    break;
+                },
+                else => self._processInput(epfd, @intToPtr(*Client, events[0].data.ptr)),
+            }
         }
     }
 
