@@ -675,11 +675,6 @@ const Client = struct {
 
 const ClientSet = avl.Map(*Client, void, avl.getLessThanFn(*Client));
 
-const ChannelName = struct {
-    /// Channel name.
-    slice: []const u8,
-};
-
 const ChannelNameSet = avl.Map([]const u8, *Channel, avl.getLessThanFn([]const u8));
 
 const Channel = struct {
