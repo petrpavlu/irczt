@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 const std = @import("std");
+const fs = std.fs;
 const io = std.io;
 const math = std.math;
 const mem = std.mem;
 const net = std.net;
 const os = std.os;
+const time = std.time;
 
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -44,64 +46,41 @@ test "format timestamp" {
     var buffer: [timestamp_str_width]u8 = undefined;
 
     formatTimeStamp(&buffer, 0);
-    expect(mem.eql(u8, buffer, "[                0.000]"));
+    expect(mem.eql(u8, buffer[0..], "[                0.000]"));
 
     formatTimeStamp(&buffer, 1);
-    expect(mem.eql(u8, buffer, "[                0.001]"));
+    expect(mem.eql(u8, buffer[0..], "[                0.001]"));
 
     formatTimeStamp(&buffer, 100);
-    expect(mem.eql(u8, buffer, "[                0.100]"));
+    expect(mem.eql(u8, buffer[0..], "[                0.100]"));
 
     formatTimeStamp(&buffer, 1000);
-    expect(mem.eql(u8, buffer, "[                1.000]"));
+    expect(mem.eql(u8, buffer[0..], "[                1.000]"));
 
     formatTimeStamp(&buffer, 10000);
-    expect(mem.eql(u8, buffer, "[               10.000]"));
+    expect(mem.eql(u8, buffer[0..], "[               10.000]"));
 
     formatTimeStamp(&buffer, 1234567890);
-    expect(mem.eql(u8, buffer, "[          1234567.890]"));
+    expect(mem.eql(u8, buffer[0..], "[          1234567.890]"));
 
     formatTimeStamp(&buffer, 18446744073709551615);
-    expect(mem.eql(u8, buffer, "[18446744073709551.615]"));
-}
-
-var stdout_file_out_stream: os.File.OutStream = undefined;
-var stdout_stream: ?*io.OutStream(os.File.WriteError) = null;
-
-var stderr_file_out_stream: os.File.OutStream = undefined;
-var stderr_stream: ?*io.OutStream(os.File.WriteError) = null;
-
-/// Initialize stdout and stderr streams.
-fn initOutput() void {
-    if (stdout_stream == null) {
-        if (io.getStdOut()) |stdout_file| {
-            stdout_file_out_stream = stdout_file.outStream();
-            stdout_stream = &stdout_file_out_stream.stream;
-        } else |err| {}
-    }
-
-    if (stderr_stream == null) {
-        if (io.getStdOut()) |stderr_file| {
-            stderr_file_out_stream = stderr_file.outStream();
-            stderr_stream = &stderr_file_out_stream.stream;
-        } else |err| {}
-    }
+    expect(mem.eql(u8, buffer[0..], "[18446744073709551.615]"));
 }
 
 /// Print a message on the standard output.
-fn info(comptime fmt: []const u8, args: ...) void {
-    assert(stdout_stream != null);
+fn info(comptime fmt: []const u8, args: anytype) void {
     var timestamp: [timestamp_str_width]u8 = undefined;
-    formatTimeStamp(&timestamp, os.time.milliTimestamp());
-    stdout_stream.?.print("{} " ++ fmt, timestamp, args) catch return;
+    formatTimeStamp(&timestamp, @intCast(u64, time.milliTimestamp()));
+    const writer = io.getStdOut().writer();
+    writer.print("{} " ++ fmt, .{timestamp} ++ args) catch return;
 }
 
 /// Print a message on the standard error output.
-fn warn(comptime fmt: []const u8, args: ...) void {
-    assert(stderr_stream != null);
+fn warn(comptime fmt: []const u8, args: anytype) void {
     var timestamp: [timestamp_str_width]u8 = undefined;
-    formatTimeStamp(&timestamp, os.time.milliTimestamp());
-    stderr_stream.?.print("\x1b[31m{} " ++ fmt ++ "\x1b[0m", timestamp, args) catch return;
+    formatTimeStamp(&timestamp, @intCast(u64, time.milliTimestamp()));
+    const writer = io.getStdErr().writer();
+    writer.print("\x1b[31m{} " ++ fmt ++ "\x1b[0m", .{timestamp} ++ args) catch return;
 }
 
 /// Thin wrapper around net.Address to provide integration with std.fmt.
@@ -124,29 +103,29 @@ const NetAddress = struct {
         return output[i..];
     }
 
-    fn format(
-        self: NetAddress,
-        comptime fmt: []const u8,
-        context: var,
-        comptime FmtError: type,
-        output: fn (@typeOf(context), []const u8) FmtError!void,
-    ) FmtError!void {
-        assert(self._addr.os_addr.in.family == os.posix.AF_INET);
-
-        const native_endian_port = mem.bigToNative(u16, self._addr.os_addr.in.port);
-        const bytes = @sliceToBytes(@ptrCast(*const [1]u32, &self._addr.os_addr.in.addr)[0..]);
-
-        var tmp: [5]u8 = undefined;
-        try output(context, formatU16(&tmp, bytes[0]));
-        try output(context, ".");
-        try output(context, formatU16(&tmp, bytes[1]));
-        try output(context, ".");
-        try output(context, formatU16(&tmp, bytes[2]));
-        try output(context, ".");
-        try output(context, formatU16(&tmp, bytes[3]));
-        try output(context, ":");
-        return output(context, formatU16(&tmp, native_endian_port));
-    }
+    //    fn format(
+    //        self: NetAddress,
+    //        comptime fmt: []const u8,
+    //        context: var,
+    //        comptime FmtError: type,
+    //        output: fn (@typeOf(context), []const u8) FmtError!void,
+    //    ) FmtError!void {
+    //        assert(self._addr.os_addr.in.family == os.posix.AF_INET);
+    //
+    //        const native_endian_port = mem.bigToNative(u16, self._addr.os_addr.in.port);
+    //        const bytes = @sliceToBytes(@ptrCast(*const [1]u32, &self._addr.os_addr.in.addr)[0..]);
+    //
+    //        var tmp: [5]u8 = undefined;
+    //        try output(context, formatU16(&tmp, bytes[0]));
+    //        try output(context, ".");
+    //        try output(context, formatU16(&tmp, bytes[1]));
+    //        try output(context, ".");
+    //        try output(context, formatU16(&tmp, bytes[2]));
+    //        try output(context, ".");
+    //        try output(context, formatU16(&tmp, bytes[3]));
+    //        try output(context, ":");
+    //        return output(context, formatU16(&tmp, native_endian_port));
+    //    }
 };
 
 /// Thin wrapper for character slices to output non-printable characters as escaped values with
@@ -162,29 +141,29 @@ const EscapeFormatter = struct {
         return self._slice;
     }
 
-    fn format(
-        self: EscapeFormatter,
-        comptime fmt: []const u8,
-        context: var,
-        comptime FmtError: type,
-        output: fn (@typeOf(context), []const u8) FmtError!void,
-    ) FmtError!void {
-        if (fmt.len > 0)
-            @compileError("Unknown format character: " ++ []u8{fmt[0]});
-
-        for (self._slice) |char| {
-            if (char == '\\') {
-                try output(context, "\\\\");
-            } else if (char >= ' ' and char <= '~') {
-                try output(context, []u8{char});
-            } else {
-                try output(context, "\\x");
-                try output(context, []u8{'0' + (char / 10)});
-                try output(context, []u8{'0' + (char % 10)});
-            }
-        }
-        return {};
-    }
+    //    fn format(
+    //        self: EscapeFormatter,
+    //        comptime fmt: []const u8,
+    //        context: var,
+    //        comptime FmtError: type,
+    //        output: fn (@typeOf(context), []const u8) FmtError!void,
+    //    ) FmtError!void {
+    //        if (fmt.len > 0)
+    //            @compileError("Unknown format character: " ++ []u8{fmt[0]});
+    //
+    //        for (self._slice) |char| {
+    //            if (char == '\\') {
+    //                try output(context, "\\\\");
+    //            } else if (char >= ' ' and char <= '~') {
+    //                try output(context, []u8{char});
+    //            } else {
+    //                try output(context, "\\x");
+    //                try output(context, []u8{'0' + (char / 10)});
+    //                try output(context, []u8{'0' + (char % 10)});
+    //            }
+    //        }
+    //        return {};
+    //    }
 };
 
 /// Alias for EscapeFormatter.init().
@@ -204,21 +183,21 @@ const ConditionalEscapeFormatter = struct {
         };
     }
 
-    fn format(
-        self: ConditionalEscapeFormatter,
-        comptime fmt: []const u8,
-        context: var,
-        comptime FmtError: type,
-        output: fn (@typeOf(context), []const u8) FmtError!void,
-    ) FmtError!void {
-        if (fmt.len > 0)
-            @compileError("Unknown format character: " ++ []u8{fmt[0]});
-
-        if (self._cond.*) {
-            try self._escape.format(fmt, context, FmtError, output);
-        } else
-            try output(context, self._escape.getSlice());
-    }
+    //    fn format(
+    //        self: ConditionalEscapeFormatter,
+    //        comptime fmt: []const u8,
+    //        context: var,
+    //        comptime FmtError: type,
+    //        output: fn (@typeOf(context), []const u8) FmtError!void,
+    //    ) FmtError!void {
+    //        if (fmt.len > 0)
+    //            @compileError("Unknown format character: " ++ []u8{fmt[0]});
+    //
+    //        if (self._cond.*) {
+    //            try self._escape.format(fmt, context, FmtError, output);
+    //        } else
+    //            try output(context, self._escape.getSlice());
+    //    }
 };
 
 /// Alias for ConditionalEscapeFormatter.init().
@@ -307,6 +286,13 @@ const UserSet = avl.Map(*User, void, avl.getLessThanFn(*User));
 
 /// Remote client.
 const Client = struct {
+    const InputState = enum {
+        Normal,
+        Normal_CR,
+        Invalid,
+        Invalid_CR,
+    };
+
     _server: *Server,
     _allocator: *Allocator,
 
@@ -316,17 +302,9 @@ const Client = struct {
     _fd: i32,
     _addr: NetAddress,
 
-    _write_file_out_stream: os.File.OutStream,
-    _write_stream: *io.OutStream(os.File.WriteError),
-    _read_file_in_stream: os.File.InStream,
-    _read_stream: *io.InStream(os.File.ReadError),
+    _file_writer: fs.File.Writer,
+    _file_reader: fs.File.Reader,
 
-    const InputState = enum {
-        Normal,
-        Normal_CR,
-        Invalid,
-        Invalid_CR,
-    };
     _input_state: InputState,
     _input_buffer: [512]u8,
     _input_received: usize,
@@ -335,11 +313,9 @@ const Client = struct {
     /// is fully joined.
     _registered: bool,
 
-    const RealNameType = [512]u8;
-    _realname: RealNameType,
+    _realname: [512]u8,
     _realname_end: usize,
-    const NickNameType = [9]u8;
-    _nickname: NickNameType,
+    _nickname: [9]u8,
     _nickname_end: usize,
 
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
@@ -347,29 +323,28 @@ const Client = struct {
     fn create(fd: i32, addr: NetAddress, server: *Server, allocator: *Allocator) !*Client {
         errdefer os.close(fd);
 
-        info("{}: Accepted a new client.\n", addr);
+        info("{}: Accepted a new client.\n", .{addr});
 
         const client = allocator.create(Client) catch |err| {
-            warn("{}: Failed to allocate a client instance: {}.\n", addr, @errorName(err));
+            warn("{}: Failed to allocate a client instance: {}.\n", .{ addr, @errorName(err) });
             return err;
         };
+        const file = fs.File{ .handle = fd };
         client.* = Client{
             ._server = server,
             ._allocator = allocator,
             ._user = User{ .type_ = User.Type.Client },
             ._fd = fd,
             ._addr = addr,
-            ._write_file_out_stream = os.File.openHandle(fd).outStream(),
-            ._write_stream = &client._write_file_out_stream.stream,
-            ._read_file_in_stream = os.File.openHandle(fd).inStream(),
-            ._read_stream = &client._read_file_in_stream.stream,
+            ._file_writer = file.writer(),
+            ._file_reader = file.reader(),
             ._input_state = Client.InputState.Normal,
             ._input_buffer = undefined,
             ._input_received = 0,
             ._registered = false,
-            ._realname = []u8{0} ** Client.RealNameType.len,
+            ._realname = [_]u8{0} ** @typeInfo(@TypeOf(client._realname)).Array.len,
             ._realname_end = 0,
-            ._nickname = []u8{0} ** Client.NickNameType.len,
+            ._nickname = [_]u8{0} ** @typeInfo(@TypeOf(client._nickname)).Array.len,
             ._nickname_end = 0,
         };
         return client;
@@ -378,7 +353,7 @@ const Client = struct {
     /// Close connection to a client and destroy the client data.
     fn destroy(self: *Client) void {
         os.close(self._fd);
-        self._info("Closed client connection.\n");
+        self._info("Closed client connection.\n", .{});
         self._allocator.destroy(self);
     }
 
@@ -402,23 +377,23 @@ const Client = struct {
         return self._nickname[0..self._nickname_end];
     }
 
-    fn _info(self: *Client, comptime fmt: []const u8, args: ...) void {
-        info("{}: " ++ fmt, self._addr, args);
+    fn _info(self: *Client, comptime fmt: []const u8, args: anytype) void {
+        info("{}: " ++ fmt, .{self._addr} ++ args);
     }
 
-    fn _warn(self: *Client, comptime fmt: []const u8, args: ...) void {
-        warn("{}: " ++ fmt, self._addr, args);
+    fn _warn(self: *Client, comptime fmt: []const u8, args: anytype) void {
+        warn("{}: " ++ fmt, .{self._addr} ++ args);
     }
 
     fn _acceptParamMax(self: *Client, lexer: *Lexer, param: []const u8, maxlen: usize) ![]const u8 {
         const begin = lexer.getCurPos();
         const res = lexer.readParam();
         if (res.len == 0) {
-            self._warn("Position {}, expected parameter {}.\n", begin + 1, param);
+            self._warn("Position {}, expected parameter {}.\n", .{ begin + 1, param });
             return error.NeedsMoreParams;
         }
         if (res.len > maxlen) {
-            self._warn("Position {}, parameter {} is too long (maximum: {}, actual: {}).\n", begin + 1, param, maxlen, res.len);
+            self._warn("Position {}, parameter {} is too long (maximum: {}, actual: {}).\n", .{ begin + 1, param, maxlen, res.len });
             // IRC has no error reply for too long parameters, so cut-off the value.
             return res[0..maxlen];
         }
@@ -487,14 +462,14 @@ const Client = struct {
 
         // Send RPL_LUSERCLIENT.
         // TODO Fix user count.
-        try self._sendMessage(&ec, ":{} 251 {} :There are {} users and 0 invisible on 1 servers", hostname, CProtect(nickname, &ec), i32(1));
+        try self._sendMessage(&ec, ":{} 251 {} :There are {} users and 0 invisible on 1 servers", .{ hostname, CProtect(nickname, &ec), 1 });
 
         // Send motd.
-        try self._sendMessage(&ec, ":{} 375 {} :- {} Message of the Day -", hostname, CProtect(nickname, &ec), hostname);
-        try self._sendMessage(&ec, ":{} 372 {} :- Welcome to the {} IRC network!", hostname, CProtect(nickname, &ec), hostname);
-        try self._sendMessage(&ec, ":{} 376 {} :End of /MOTD command.", hostname, CProtect(nickname, &ec));
+        try self._sendMessage(&ec, ":{} 375 {} :- {} Message of the Day -", .{ hostname, CProtect(nickname, &ec), hostname });
+        try self._sendMessage(&ec, ":{} 372 {} :- Welcome to the {} IRC network!", .{ hostname, CProtect(nickname, &ec), hostname });
+        try self._sendMessage(&ec, ":{} 376 {} :End of /MOTD command.", .{ hostname, CProtect(nickname, &ec) });
 
-        try self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", CProtect(nickname, &ec));
+        try self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", .{CProtect(nickname, &ec)});
 
         self._registered = true;
     }
@@ -504,7 +479,7 @@ const Client = struct {
     fn _checkRegistered(self: *Client) !void {
         if (self._registered)
             return;
-        try self._sendMessage(null, ":{} 451 * :You have not registered", self._server.getHostName());
+        try self._sendMessage(null, ":{} 451 * :You have not registered", .{self._server.getHostName()});
         return error.NotRegistered;
     }
 
@@ -519,18 +494,18 @@ const Client = struct {
         var ec: bool = undefined;
 
         // Send RPL_LISTSTART.
-        try self._sendMessage(&ec, ":{} 321 {} Channel :Users  Name", self._server.getHostName(), CProtect(nickname, &ec));
+        try self._sendMessage(&ec, ":{} 321 {} Channel :Users  Name", .{ self._server.getHostName(), CProtect(nickname, &ec) });
 
         // Send RPL_LIST for each channel.
         const channels = self._server.getChannels();
         var channel_iter = channels.iterator();
         while (channel_iter.next()) |channel_node| {
             const channel = channel_node.key();
-            try self._sendMessage(&ec, ":{} 322 {} {} {} :", self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel.getName(), &ec), channel.getUserCount());
+            try self._sendMessage(&ec, ":{} 322 {} {} {} :", .{ self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel.getName(), &ec), channel.getUserCount() });
         }
 
         // Send RPL_LISTEND.
-        try self._sendMessage(&ec, ":{} 323 {} :End of /LIST", self._server.getHostName(), CProtect(nickname, &ec));
+        try self._sendMessage(&ec, ":{} 323 {} :End of /LIST", .{ self._server.getHostName(), CProtect(nickname, &ec) });
     }
 
     /// Process the JOIN command.
@@ -546,7 +521,7 @@ const Client = struct {
 
         const channel = self._server.lookupChannel(channel_name) orelse {
             // Send ERR_NOSUCHCHANNEL.
-            try self._sendMessage(&ec, ":{} 403 {} {} :No such channel", self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec));
+            try self._sendMessage(&ec, ":{} 403 {} {} :No such channel", .{ self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec) });
             return;
         };
         // TODO Record joined channels.
@@ -555,21 +530,21 @@ const Client = struct {
     }
 
     /// Send a message to the client.
-    fn _sendMessage(self: *Client, escape_cond: ?*bool, comptime fmt: []const u8, args: ...) !void {
+    fn _sendMessage(self: *Client, escape_cond: ?*bool, comptime fmt: []const u8, args: anytype) !void {
         if (escape_cond != null)
             escape_cond.?.* = true;
         self._info("> " ++ fmt ++ "\n", args);
         if (escape_cond != null)
             escape_cond.?.* = false;
-        self._write_stream.print(fmt ++ "\r\n", args) catch |err| {
-            self._warn("Failed to write message into the client socket: {}.\n", @errorName(err));
+        self._file_writer.print(fmt ++ "\r\n", args) catch |err| {
+            self._warn("Failed to write message into the client socket: {}.\n", .{@errorName(err)});
             return err;
         };
     }
 
     /// Process a single message from the client.
     fn _processMessage(self: *Client, message: []const u8) void {
-        self._info("< {}\n", Protect(message));
+        self._info("< {}\n", .{Protect(message)});
 
         var lexer = Lexer.init(message);
 
@@ -591,10 +566,10 @@ const Client = struct {
         } else if (mem.eql(u8, command, "JOIN")) {
             res = self._processCommand_JOIN(&lexer);
         } else
-            self._warn("Unrecognized command: {}\n", Protect(command));
+            self._warn("Unrecognized command: {}\n", .{Protect(command)});
 
         if (res) {} else |err| {
-            self._warn("Error: {}!\n", Protect(command));
+            self._warn("Error: {}!\n", .{Protect(command)});
             // TODO
         }
     }
@@ -604,13 +579,13 @@ const Client = struct {
     fn processInput(self: *Client) !usize {
         assert(self._input_received < self._input_buffer.len);
         var pos = self._input_received;
-        const read = self._read_stream.read(self._input_buffer[pos..]) catch |err| {
-            self._warn("Failed to read input from the client socket: {}.\n", @errorName(err));
+        const read = self._file_reader.read(self._input_buffer[pos..]) catch |err| {
+            self._warn("Failed to read input from the client socket: {}.\n", .{@errorName(err)});
             return err;
         };
         if (read == 0) {
             // End of file reached.
-            self._info("Client disconnected.\n");
+            self._info("Client disconnected.\n", .{});
             // TODO Report any unhandled data.
             return read;
         }
@@ -689,7 +664,7 @@ const Channel = struct {
     fn create(name: []const u8, server: *Server, allocator: *Allocator) !*Channel {
         // Make a copy of the name string.
         const name_copy = allocator.alloc(u8, name.len) catch |err| {
-            warn("Failed to allocate a channel name string buffer: {}.\n", @errorName(err));
+            warn("Failed to allocate a channel name string buffer: {}.\n", .{@errorName(err)});
             return err;
         };
         errdefer allocator.free(name_copy);
@@ -697,7 +672,7 @@ const Channel = struct {
 
         // Allocate a channel instance.
         const channel = allocator.create(Channel) catch |err| {
-            warn("Failed to allocate a channel instance: {}.\n", @errorName(err));
+            warn("Failed to allocate a channel instance: {}.\n", .{@errorName(err)});
             return err;
         };
         channel.* = Channel{
@@ -723,22 +698,24 @@ const Channel = struct {
         return self._users.count();
     }
 
-    fn _info(self: *Channel, comptime fmt: []const u8, args: ...) void {
-        info("{}: " ++ fmt, Protect(self._name), args);
+    fn _info(self: *Channel, comptime fmt: []const u8, args: anytype) void {
+        const name = Protect(self._name);
+        info("{}: " ++ fmt, .{name} ++ args);
     }
 
-    fn _warn(self: *Channel, comptime fmt: []const u8, args: ...) void {
-        warn("{}: " ++ fmt, Protect(self._name), args);
+    fn _warn(self: *Channel, comptime fmt: []const u8, args: anytype) void {
+        const name = Protect(self._name);
+        warn("{}: " ++ fmt, .{name} ++ args);
     }
 
     fn join(self: *Channel, user: *User) !void {
         // TODO Fix handling of duplicated join.
         _ = self._users.insert(user, {}) catch |err| {
-            self._warn("Failed to insert user {} in the channel user set: {}.\n", Protect(user.getName()), @errorName(err));
+            self._warn("Failed to insert user {} in the channel user set: {}.\n", .{ Protect(user.getName()), @errorName(err) });
             return err;
         };
         // TODO Inform other clients about the join.
-        self._info("User {} joined the channel.\n", Protect(user.getName()));
+        self._info("User {} joined the channel.\n", .{Protect(user.getName())});
     }
 };
 
@@ -782,25 +759,26 @@ const Server = struct {
         const host = address[0..host_end];
         const port = address[port_start..address.len];
 
-        const parsed_host = net.parseIp4(host) catch |err| {
-            warn("Failed to parse IP address '{}': {}.\n", host, @errorName(err));
+        const parsed_port = std.fmt.parseUnsigned(u16, port, 10) catch |err| {
+            warn("Failed to parse port number '{}': {}.\n", .{ port, @errorName(err) });
             return err;
         };
-        const parsed_port = std.fmt.parseUnsigned(u16, port, 10) catch |err| {
-            warn("Failed to parse port number '{}': {}.\n", port, @errorName(err));
+
+        const parsed_address = net.Address.parseIp4(host, parsed_port) catch |err| {
+            warn("Failed to parse IP address '{}:{}': {}.\n", .{ host, port, @errorName(err) });
             return err;
         };
 
         // Make a copy of the host and port strings.
         const host_copy = allocator.alloc(u8, host.len) catch |err| {
-            warn("Failed to allocate a host string buffer: {}.\n", @errorName(err));
+            warn("Failed to allocate a host string buffer: {}.\n", .{@errorName(err)});
             return err;
         };
         errdefer allocator.free(host_copy);
         mem.copy(u8, host_copy, host);
 
         const port_copy = allocator.alloc(u8, port.len) catch |err| {
-            warn("Failed to allocate a port string buffer: {}.\n", @errorName(err));
+            warn("Failed to allocate a port string buffer: {}.\n", .{@errorName(err)});
             return err;
         };
         errdefer allocator.free(port_copy);
@@ -808,12 +786,12 @@ const Server = struct {
 
         // Allocate the server struct.
         const server = allocator.create(Server) catch |err| {
-            warn("Failed to allocate a server instance: {}.\n", @errorName(err));
+            warn("Failed to allocate a server instance: {}.\n", .{@errorName(err)});
             return err;
         };
         server.* = Server{
             ._allocator = allocator,
-            ._sockaddr = net.Address.initIp4(parsed_host, parsed_port),
+            ._sockaddr = parsed_address,
             ._host = host_copy,
             ._port = port_copy,
             ._clients = ClientSet.init(allocator),
@@ -856,54 +834,54 @@ const Server = struct {
 
     fn run(self: *Server) !void {
         // Create the server socket.
-        const listenfd = os.posixSocket(os.posix.AF_INET, os.posix.SOCK_STREAM | os.posix.SOCK_CLOEXEC, os.posix.PROTO_tcp) catch |err| {
-            warn("Failed to create a server socket: {}.\n", @errorName(err));
+        const listenfd = os.socket(os.AF_INET, os.SOCK_STREAM | os.SOCK_CLOEXEC, os.IPPROTO_TCP) catch |err| {
+            warn("Failed to create a server socket: {}.\n", .{@errorName(err)});
             return err;
         };
         defer os.close(listenfd);
 
-        os.posixBind(listenfd, &self._sockaddr.os_addr) catch |err| {
-            warn("Failed to bind to address {}:{}: {}.\n", self._host, self._port, @errorName(err));
+        os.bind(listenfd, &self._sockaddr.any, self._sockaddr.getOsSockLen()) catch |err| {
+            warn("Failed to bind to address {}:{}: {}.\n", .{ self._host, self._port, @errorName(err) });
             return err;
         };
 
-        os.posixListen(listenfd, os.posix.SOMAXCONN) catch |err| {
-            warn("Failed to listen on {}:{}: {}.\n", self._host, self._port, @errorName(err));
+        os.listen(listenfd, os.SOMAXCONN) catch |err| {
+            warn("Failed to listen on {}:{}: {}.\n", .{ self._host, self._port, @errorName(err) });
             return err;
         };
 
         // Create an epoll instance.
-        const epfd = os.linuxEpollCreate(os.posix.EPOLL_CLOEXEC) catch |err| {
-            warn("Failed to create an epoll instance: {}.\n", @errorName(err));
+        const epfd = os.epoll_create1(os.EPOLL_CLOEXEC) catch |err| {
+            warn("Failed to create an epoll instance: {}.\n", .{@errorName(err)});
             return err;
         };
         defer os.close(epfd);
 
         // Register the server socket with the epoll instance.
-        var listenfd_event = os.posix.epoll_event{
-            .events = os.posix.EPOLLIN,
-            .data = os.posix.epoll_data{ .ptr = 0 },
+        var listenfd_event = os.epoll_event{
+            .events = os.EPOLLIN,
+            .data = os.epoll_data{ .ptr = 0 },
         };
-        os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, listenfd, &listenfd_event) catch |err| {
-            warn("Failed to add the server socket (file descriptor {}) to the epoll instance: {}.\n", listenfd, @errorName(err));
+        os.epoll_ctl(epfd, os.EPOLL_CTL_ADD, listenfd, &listenfd_event) catch |err| {
+            warn("Failed to add the server socket (file descriptor {}) to the epoll instance: {}.\n", .{ listenfd, @errorName(err) });
             return err;
         };
 
         // Register the standard input with the epoll instance.
-        var stdinfd_event = os.posix.epoll_event{
-            .events = os.posix.EPOLLIN,
-            .data = os.posix.epoll_data{ .ptr = 1 },
+        var stdinfd_event = os.epoll_event{
+            .events = os.EPOLLIN,
+            .data = os.epoll_data{ .ptr = 1 },
         };
-        os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, os.posix.STDIN_FILENO, &stdinfd_event) catch |err| {
-            warn("Failed to add the standard input to the epoll instance: {}.\n", @errorName(err));
+        os.epoll_ctl(epfd, os.EPOLL_CTL_ADD, os.STDIN_FILENO, &stdinfd_event) catch |err| {
+            warn("Failed to add the standard input to the epoll instance: {}.\n", .{@errorName(err)});
             return err;
         };
 
         // Listen for events.
-        info("Listening on {}:{}.\n", self._host, self._port);
+        info("Listening on {}:{}.\n", .{ self._host, self._port });
         while (true) {
-            var events: [1]os.posix.epoll_event = undefined;
-            const ep = os.linuxEpollWait(epfd, events[0..], -1);
+            var events: [1]os.epoll_event = undefined;
+            const ep = os.epoll_wait(epfd, events[0..], -1);
             if (ep == 0)
                 continue;
 
@@ -912,7 +890,7 @@ const Server = struct {
                 0 => self._acceptClient(epfd, listenfd),
                 1 => {
                     // Exit on any input on stdin.
-                    info("Exit request from the standard input.\n");
+                    info("Exit request from the standard input.\n", .{});
                     break;
                 },
                 else => self._processInput(epfd, @intToPtr(*Client, events[0].data.ptr)),
@@ -922,13 +900,14 @@ const Server = struct {
 
     /// Accept a new client connection.
     fn _acceptClient(self: *Server, epfd: i32, listenfd: i32) void {
-        var client_sockaddr: os.posix.sockaddr = undefined;
-        const clientfd = os.posixAccept(listenfd, &client_sockaddr, os.posix.SOCK_CLOEXEC) catch |err| {
-            warn("Failed to accept a new client connection: {}.\n", @errorName(err));
+        var client_sockaddr: os.sockaddr align(4) = undefined;
+        var client_socklen: os.socklen_t = @sizeOf(@TypeOf(client_sockaddr));
+        const clientfd = os.accept(listenfd, &client_sockaddr, &client_socklen, os.SOCK_CLOEXEC) catch |err| {
+            warn("Failed to accept a new client connection: {}.\n", .{@errorName(err)});
             return;
         };
 
-        const client_addr = NetAddress.init(net.Address.initPosix(client_sockaddr));
+        const client_addr = NetAddress.init(net.Address.initPosix(&client_sockaddr));
 
         // Create a new client. This transfers ownership of the clientfd to the Client
         // instance.
@@ -936,18 +915,18 @@ const Server = struct {
         errdefer client.destroy();
 
         const client_iter = self._clients.insert(client, {}) catch |err| {
-            warn("{}: Failed to insert a client in the main client set: {}.\n", client_addr, @errorName(err));
+            warn("{}: Failed to insert a client in the main client set: {}.\n", .{ client_addr, @errorName(err) });
             return;
         };
         errdefer self._clients.remove(client_iter);
 
         // Listen for the client.
-        var clientfd_event = os.posix.epoll_event{
-            .events = os.posix.EPOLLIN,
-            .data = os.posix.epoll_data{ .ptr = @ptrToInt(client) },
+        var clientfd_event = os.epoll_event{
+            .events = os.EPOLLIN,
+            .data = os.epoll_data{ .ptr = @ptrToInt(client) },
         };
-        os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
-            warn("{}: Failed to add a client socket (file descriptor {}) to the epoll instance: {}.\n", client_addr, clientfd, @errorName(err));
+        os.epoll_ctl(epfd, os.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
+            warn("{}: Failed to add a client socket (file descriptor {}) to the epoll instance: {}.\n", .{ client_addr, clientfd, @errorName(err) });
             return;
         };
     }
@@ -960,7 +939,7 @@ const Server = struct {
 
         // Destroy the client.
         const clientfd = client.getFileDescriptor();
-        os.linuxEpollCtl(epfd, os.posix.EPOLL_CTL_DEL, clientfd, undefined) catch unreachable;
+        os.epoll_ctl(epfd, os.EPOLL_CTL_DEL, clientfd, undefined) catch unreachable;
 
         const client_iter = self._clients.find(client);
         assert(client_iter.valid());
@@ -974,13 +953,13 @@ const Server = struct {
         errdefer channel.destroy();
 
         const channel_iter = self._channels.insert(channel, {}) catch |err| {
-            warn("Failed to insert a channel in the main channel set: {}.\n", @errorName(err));
+            warn("Failed to insert a channel in the main channel set: {}.\n", .{@errorName(err)});
             return err;
         };
         errdefer self._channels.remove(channel_iter);
 
         _ = self._channels_by_name.insert(channel.getName(), channel) catch |err| {
-            warn("Failed to insert a channel in the by-name channel set: {}.\n", @errorName(err));
+            warn("Failed to insert a channel in the by-name channel set: {}.\n", .{@errorName(err)});
             return err;
         };
     }
@@ -997,9 +976,6 @@ const Server = struct {
 };
 
 pub fn main() u8 {
-    // Initialize stdout and stderr streams.
-    initOutput();
-
     // Get an allocator.
     const allocator = std.heap.c_allocator;
 

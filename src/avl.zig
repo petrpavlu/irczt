@@ -307,7 +307,7 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             var maybe_node: ?*_Node = insert_node;
             var change_balance = balance;
             while (maybe_node) |node| {
-                const new_balance = i3(node._balance) + change_balance;
+                const new_balance = @as(i3, node._balance) + change_balance;
                 if (new_balance == 0) {
                     node._balance = 0;
                     return;
@@ -332,7 +332,7 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
                 node._balance = @intCast(i2, new_balance);
                 const maybe_parent_node = node._parent;
                 if (maybe_parent_node) |parent_node|
-                    change_balance = if (parent_node._left == node) i2(-1) else 1;
+                    change_balance = if (parent_node._left == node) -1 else 1;
                 maybe_node = maybe_parent_node;
             }
         }
@@ -341,7 +341,7 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             var maybe_node: ?*_Node = remove_node;
             var change_balance = balance;
             while (maybe_node) |node| {
-                const new_balance = i3(node._balance) + change_balance;
+                const new_balance = @as(i3, node._balance) + change_balance;
                 var next_node: *_Node = undefined;
                 if (new_balance == 0) {
                     node._balance = 0;
@@ -369,7 +369,7 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
 
                 const maybe_parent_node = next_node._parent;
                 if (maybe_parent_node) |parent_node|
-                    change_balance = if (parent_node._left == next_node) i2(1) else -1;
+                    change_balance = if (parent_node._left == next_node) 1 else -1;
                 maybe_node = maybe_parent_node;
             }
         }
@@ -552,10 +552,10 @@ const IntToStrMap = Map(i32, []const u8, getLessThanFn(i32));
 const IntSet = Map(i32, void, getLessThanFn(i32));
 
 test "insert - left rotation" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter0 = try ismap.insert(0, "0");
@@ -605,10 +605,10 @@ test "insert - left rotation" {
 }
 
 test "insert - right rotation" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter2 = try ismap.insert(2, "2");
@@ -658,10 +658,10 @@ test "insert - right rotation" {
 }
 
 test "insert - left right rotation" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter2 = try ismap.insert(2, "2");
@@ -711,10 +711,10 @@ test "insert - left right rotation" {
 }
 
 test "insert - right left rotation" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter0 = try ismap.insert(0, "0");
@@ -764,10 +764,10 @@ test "insert - right left rotation" {
 }
 
 test "remove - 2 children - immediate successor" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter1 = try ismap.insert(1, "1");
@@ -815,10 +815,10 @@ test "remove - 2 children - immediate successor" {
 }
 
 test "remove - 2 children - non-immediate successor" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter1 = try ismap.insert(1, "1");
@@ -866,10 +866,10 @@ test "remove - 2 children - non-immediate successor" {
 }
 
 test "remove - 1 child - left" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter1 = try ismap.insert(1, "1");
@@ -897,10 +897,10 @@ test "remove - 1 child - left" {
 }
 
 test "remove - 1 child - right" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter0 = try ismap.insert(0, "0");
@@ -928,10 +928,10 @@ test "remove - 1 child - right" {
 }
 
 test "remove - 0 children" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter0 = try ismap.insert(0, "0");
@@ -949,10 +949,10 @@ test "remove - 0 children" {
 }
 
 test "remove - rebalance - new=-2, left=-1" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter2 = try ismap.insert(2, "2");
@@ -1000,10 +1000,10 @@ test "remove - rebalance - new=-2, left=-1" {
 }
 
 test "remove - rebalance - new=-2, left=0" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter3 = try ismap.insert(3, "3");
@@ -1061,10 +1061,10 @@ test "remove - rebalance - new=-2, left=0" {
 }
 
 test "remove - rebalance - new=-2, left=1" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter2 = try ismap.insert(2, "2");
@@ -1112,10 +1112,10 @@ test "remove - rebalance - new=-2, left=1" {
 }
 
 test "remove - rebalance - new=2, right=1" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter1 = try ismap.insert(1, "1");
@@ -1163,10 +1163,10 @@ test "remove - rebalance - new=2, right=1" {
 }
 
 test "remove - rebalance - new=2, right=0" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter1 = try ismap.insert(1, "1");
@@ -1224,10 +1224,10 @@ test "remove - rebalance - new=2, right=0" {
 }
 
 test "remove - rebalance - new=2, right=-1" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter1 = try ismap.insert(1, "1");
@@ -1275,10 +1275,10 @@ test "remove - rebalance - new=2, right=-1" {
 }
 
 test "remove - rebalance - new=-1" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter1 = try ismap.insert(1, "1");
@@ -1316,10 +1316,10 @@ test "remove - rebalance - new=-1" {
 }
 
 test "remove - rebalance - new=1" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter1 = try ismap.insert(1, "1");
@@ -1357,10 +1357,10 @@ test "remove - rebalance - new=1" {
 }
 
 test "remove - rebalance - new=0" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     const iter2 = try ismap.insert(2, "2");
@@ -1408,10 +1408,10 @@ test "remove - rebalance - new=0" {
 }
 
 test "iterate" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     var iter: IntToStrMap.Iterator = undefined;
@@ -1498,10 +1498,10 @@ test "iterate" {
 }
 
 test "find" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var ismap = IntToStrMap.init(&direct_allocator.allocator);
+    var ismap = IntToStrMap.init(&arena_allocator.allocator);
     defer ismap.deinit();
 
     _ = try ismap.insert(3, "3");
@@ -1519,10 +1519,10 @@ test "find" {
 }
 
 test "set" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
 
-    var iset = IntSet.init(&direct_allocator.allocator);
+    var iset = IntSet.init(&arena_allocator.allocator);
     defer iset.deinit();
 
     const iter0 = try iset.insert(0, {});

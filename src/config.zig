@@ -5,7 +5,7 @@
 pub const address = "127.0.0.1:6667";
 
 /// Pre-defined channels.
-pub const channels = [][]const u8 {
+pub const channels = [_][]const u8{
     "#everyday",
     "#future",
     "#movies",
@@ -14,7 +14,7 @@ pub const channels = [][]const u8 {
 };
 
 /// Fake local users.
-pub const local_bots = [][]const u8 {
+pub const local_bots = [_][]const u8{
     "Abigail",
     "Albert",
     "Alice",
