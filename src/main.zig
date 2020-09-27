@@ -83,51 +83,6 @@ fn warn(comptime fmt: []const u8, args: anytype) void {
     writer.print("\x1b[31m{} " ++ fmt ++ "\x1b[0m", .{timestamp} ++ args) catch return;
 }
 
-/// Thin wrapper around net.Address to provide integration with std.fmt.
-const NetAddress = struct {
-    // TODO Replace NetAddress with the plain net.Address when it gains proper support for std.fmt.
-    _addr: net.Address,
-
-    fn init(addr: net.Address) NetAddress {
-        return NetAddress{ ._addr = addr };
-    }
-
-    fn formatU16(output: *[5]u8, value: u16) []const u8 {
-        var rem = value;
-        var i = output.len;
-        while (rem > 0 or i == output.len) {
-            i -= 1;
-            output[i] = '0' + @intCast(u8, rem % 10);
-            rem /= 10;
-        }
-        return output[i..];
-    }
-
-    //    fn format(
-    //        self: NetAddress,
-    //        comptime fmt: []const u8,
-    //        context: var,
-    //        comptime FmtError: type,
-    //        output: fn (@typeOf(context), []const u8) FmtError!void,
-    //    ) FmtError!void {
-    //        assert(self._addr.os_addr.in.family == os.posix.AF_INET);
-    //
-    //        const native_endian_port = mem.bigToNative(u16, self._addr.os_addr.in.port);
-    //        const bytes = @sliceToBytes(@ptrCast(*const [1]u32, &self._addr.os_addr.in.addr)[0..]);
-    //
-    //        var tmp: [5]u8 = undefined;
-    //        try output(context, formatU16(&tmp, bytes[0]));
-    //        try output(context, ".");
-    //        try output(context, formatU16(&tmp, bytes[1]));
-    //        try output(context, ".");
-    //        try output(context, formatU16(&tmp, bytes[2]));
-    //        try output(context, ".");
-    //        try output(context, formatU16(&tmp, bytes[3]));
-    //        try output(context, ":");
-    //        return output(context, formatU16(&tmp, native_endian_port));
-    //    }
-};
-
 /// Thin wrapper for character slices to output non-printable characters as escaped values with
 /// std.fmt.
 const EscapeFormatter = struct {
@@ -287,7 +242,7 @@ const Client = struct {
     _user: User,
 
     _fd: i32,
-    _addr: NetAddress,
+    _addr: net.Address,
 
     _file_writer: fs.File.Writer,
     _file_reader: fs.File.Reader,
@@ -307,7 +262,7 @@ const Client = struct {
 
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
     /// constructing the client fails, the file descriptor gets closed.
-    fn create(fd: i32, addr: NetAddress, server: *Server, allocator: *Allocator) !*Client {
+    fn create(fd: i32, addr: net.Address, server: *Server, allocator: *Allocator) !*Client {
         errdefer os.close(fd);
 
         info("{}: Accepted a new client.\n", .{addr});
@@ -894,7 +849,7 @@ const Server = struct {
             return;
         };
 
-        const client_addr = NetAddress.init(net.Address.initPosix(&client_sockaddr));
+        const client_addr = net.Address.initPosix(&client_sockaddr);
 
         // Create a new client. This transfers ownership of the clientfd to the Client
         // instance.
