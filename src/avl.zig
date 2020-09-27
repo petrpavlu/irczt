@@ -43,14 +43,14 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
 
             /// Return the current value and increment the iterator.
             pub fn next(self: *Iterator) ?*KeyValue {
-                if (self._node == null)
+                if (self._node == null) {
                     return null;
+                }
 
                 const res = &self._node.?._kv;
                 if (self._node.?._right) |right_node| {
                     var successor_node = right_node;
-                    while (successor_node._left) |left_node|
-                        successor_node = left_node;
+                    while (successor_node._left) |left_node| successor_node = left_node;
                     self._node = successor_node;
                     return res;
                 }
@@ -96,8 +96,9 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
         }
 
         pub fn deinit(self: *Self) void {
-            if (self._root == null)
+            if (self._root == null) {
                 return;
+            }
 
             // Deallocate all nodes.
             var node = self._root.?;
@@ -189,8 +190,9 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
                 if (maybe_right_node) |right_node| {
                     // Find the successor and use it to replace the deleted node.
                     var successor_node = right_node;
-                    while (successor_node._left) |successor_left_node|
+                    while (successor_node._left) |successor_left_node| {
                         successor_node = successor_left_node;
+                    }
 
                     const parent_node = node._parent;
                     const successor_parent_node = successor_node._parent.?;
@@ -202,8 +204,9 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
 
                         successor_parent_node._left = maybe_successor_right_node;
 
-                        if (maybe_successor_right_node) |successor_right_node|
+                        if (maybe_successor_right_node) |successor_right_node| {
                             successor_right_node._parent = successor_parent_node;
+                        }
                     }
 
                     successor_node._parent = parent_node;
@@ -290,12 +293,14 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
         }
 
         pub fn iterator(self: *const Self) Iterator {
-            if (self._root == null)
+            if (self._root == null) {
                 return Iterator{ ._node = null };
+            }
 
             var node = self._root.?;
-            while (node._left) |left_node|
+            while (node._left) |left_node| {
                 node = left_node;
+            }
             return Iterator{ ._node = node };
         }
 
@@ -331,8 +336,9 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
 
                 node._balance = @intCast(i2, new_balance);
                 const maybe_parent_node = node._parent;
-                if (maybe_parent_node) |parent_node|
+                if (maybe_parent_node) |parent_node| {
                     change_balance = if (parent_node._left == node) -1 else 1;
+                }
                 maybe_node = maybe_parent_node;
             }
         }
@@ -349,16 +355,18 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
                 } else if (new_balance == -2) {
                     if (node._left.?._balance <= 0) {
                         next_node = self._rotateRight(node);
-                        if (next_node._balance == 1)
+                        if (next_node._balance == 1) {
                             return;
+                        }
                     } else {
                         next_node = self._rotateLeftRight(node);
                     }
                 } else if (new_balance == 2) {
                     if (node._right.?._balance >= 0) {
                         next_node = self._rotateLeft(node);
-                        if (next_node._balance == -1)
+                        if (next_node._balance == -1) {
                             return;
+                        }
                     } else {
                         next_node = self._rotateRightLeft(node);
                     }
@@ -368,8 +376,9 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
                 }
 
                 const maybe_parent_node = next_node._parent;
-                if (maybe_parent_node) |parent_node|
+                if (maybe_parent_node) |parent_node| {
                     change_balance = if (parent_node._left == next_node) 1 else -1;
+                }
                 maybe_node = maybe_parent_node;
             }
         }
@@ -383,8 +392,9 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             right_node._left = node;
             node._right = maybe_right_left_node;
             node._parent = right_node;
-            if (maybe_right_left_node) |right_left_node|
+            if (maybe_right_left_node) |right_left_node| {
                 right_left_node._parent = node;
+            }
 
             if (node == self._root) {
                 self._root = right_node;
@@ -415,8 +425,9 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             left_node._right = node;
             node._parent = left_node;
             node._left = maybe_left_right_node;
-            if (maybe_left_right_node) |left_right_node|
+            if (maybe_left_right_node) |left_right_node| {
                 left_right_node._parent = node;
+            }
 
             if (node == self._root) {
                 self._root = left_node;
@@ -453,10 +464,12 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             node._parent = left_right_node;
             node._left = maybe_left_right_right_node;
 
-            if (maybe_left_right_right_node) |left_right_right_node|
+            if (maybe_left_right_right_node) |left_right_right_node| {
                 left_right_right_node._parent = node;
-            if (maybe_left_right_left_node) |left_right_left_node|
+            }
+            if (maybe_left_right_left_node) |left_right_left_node| {
                 left_right_left_node._parent = left_node;
+            }
 
             if (node == self._root) {
                 self._root = left_right_node;
@@ -497,10 +510,12 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             node._parent = right_left_node;
             node._right = maybe_right_left_left_node;
 
-            if (maybe_right_left_left_node) |right_left_left_node|
+            if (maybe_right_left_left_node) |right_left_left_node| {
                 right_left_left_node._parent = node;
-            if (maybe_right_left_right_node) |right_left_right_node|
+            }
+            if (maybe_right_left_right_node) |right_left_right_node| {
                 right_left_right_node._parent = right_node;
+            }
 
             if (node == self._root) {
                 self._root = right_left_node;

@@ -97,8 +97,9 @@ const EscapeFormatter = struct {
     }
 
     pub fn format(self: EscapeFormatter, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: anytype) !void {
-        if (fmt.len > 0)
+        if (fmt.len > 0) {
             @compileError("Unknown format character: '" ++ fmt ++ "'");
+        }
 
         for (self._slice) |char| {
             if (char == '\\') {
@@ -132,13 +133,15 @@ const ConditionalEscapeFormatter = struct {
     }
 
     pub fn format(self: ConditionalEscapeFormatter, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: anytype) !void {
-        if (fmt.len > 0)
+        if (fmt.len > 0) {
             @compileError("Unknown format character: '" ++ fmt ++ "'");
+        }
 
         if (self._cond.*) {
             try self._escape.format(fmt, options, out_stream);
-        } else
+        } else {
             try out_stream.writeAll(self._escape.getSlice());
+        }
     }
 };
 
@@ -166,15 +169,17 @@ const Lexer = struct {
 
     /// Return the current character.
     fn getCurChar(self: *const Lexer) u8 {
-        if (self._pos < self._message.len)
+        if (self._pos < self._message.len) {
             return self._message[self._pos];
+        }
         return 0;
     }
 
     /// Skip to a next character in the message.
     fn nextChar(self: *Lexer) void {
-        if (self._pos < self._message.len)
+        if (self._pos < self._message.len) {
             self._pos += 1;
+        }
     }
 
     /// Read one word from the message.
@@ -182,11 +187,13 @@ const Lexer = struct {
         const begin = self._pos;
 
         var end = begin;
-        while (self.getCurChar() != '\x00' and self.getCurChar() != ' ') : (end += 1)
+        while (self.getCurChar() != '\x00' and self.getCurChar() != ' ') : (end += 1) {
             self.nextChar();
+        }
 
-        while (self.getCurChar() == ' ')
+        while (self.getCurChar() == ' ') {
             self.nextChar();
+        }
 
         return self._message[begin..end];
     }
@@ -365,8 +372,9 @@ const Client = struct {
         // TODO Check there no more unexpected parameters.
 
         // Complete the join if the initial USER and NICK pair was already received.
-        if (!self._registered and self._nickname_end != 0)
+        if (!self._registered and self._nickname_end != 0) {
             try self._completeRegistration();
+        }
     }
 
     /// Process the NICK command.
@@ -375,8 +383,9 @@ const Client = struct {
         const nickname = self._acceptParamMax(lexer, "<nickname>", self._nickname.len) catch |err| {
             if (err == error.NeedsMoreParams) {
                 return error.NoNickNameGiven;
-            } else
+            } else {
                 return err;
+            }
         };
         mem.copy(u8, self._nickname[0..], nickname);
         self._nickname_end = nickname.len;
@@ -388,8 +397,9 @@ const Client = struct {
         // TODO Check there no more unexpected parameters.
 
         // Complete the join if the initial USER and NICK pair was already received.
-        if (!self._registered and self._realname_end != 0)
+        if (!self._registered and self._realname_end != 0) {
             try self._completeRegistration();
+        }
     }
 
     /// Complete the client join after the initial USER and NICK pair is received.
@@ -419,8 +429,9 @@ const Client = struct {
     /// Check whether the user has completed the initial registration and is fully joined. If not
     /// then send ERR_NOTREGISTERED to the client and return error.NotRegistered.
     fn _checkRegistered(self: *Client) !void {
-        if (self._registered)
+        if (self._registered) {
             return;
+        }
         try self._sendMessage(null, ":{} 451 * :You have not registered", .{self._server.getHostName()});
         return error.NotRegistered;
     }
@@ -473,11 +484,13 @@ const Client = struct {
 
     /// Send a message to the client.
     fn _sendMessage(self: *Client, escape_cond: ?*bool, comptime fmt: []const u8, args: anytype) !void {
-        if (escape_cond != null)
+        if (escape_cond != null) {
             escape_cond.?.* = true;
+        }
         self._info("> " ++ fmt ++ "\n", args);
-        if (escape_cond != null)
+        if (escape_cond != null) {
             escape_cond.?.* = false;
+        }
         self._file_writer.print(fmt ++ "\r\n", args) catch |err| {
             self._warn("Failed to write message into the client socket: {}.\n", .{@errorName(err)});
             return err;
@@ -824,8 +837,9 @@ const Server = struct {
         while (true) {
             var events: [1]os.epoll_event = undefined;
             const ep = os.epoll_wait(epfd, events[0..], -1);
-            if (ep == 0)
+            if (ep == 0) {
                 continue;
+            }
 
             // Handle the event.
             switch (events[0].data.ptr) {
@@ -876,8 +890,9 @@ const Server = struct {
     /// Process input from a client.
     fn _processInput(self: *Server, epfd: i32, client: *Client) void {
         const res = client.processInput() catch 0;
-        if (res != 0)
+        if (res != 0) {
             return;
+        }
 
         // Destroy the client.
         const clientfd = client.getFileDescriptor();
@@ -926,10 +941,12 @@ pub fn main() u8 {
     defer server.destroy();
 
     // Create pre-defined channels and automatic users.
-    for (config.channels) |channel|
+    for (config.channels) |channel| {
         server.createChannel(channel) catch return 1;
-    for (config.local_bots) |local_bot|
+    }
+    for (config.local_bots) |local_bot| {
         server.createLocalBot(local_bot);
+    }
 
     // Run the server.
     server.run() catch return 1;
