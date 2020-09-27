@@ -7,7 +7,6 @@ pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
     const exe = b.addExecutable("irczt", "src/main.zig");
     exe.setBuildMode(mode);
-    exe.linkSystemLibrary("c");
 
     const run_step = b.step("run", "Run the app");
     const run_cmd = exe.run();

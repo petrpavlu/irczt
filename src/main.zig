@@ -934,10 +934,13 @@ const Server = struct {
 
 pub fn main() u8 {
     // Get an allocator.
-    const allocator = std.heap.c_allocator;
+    var gp_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    defer if (gp_allocator.deinit()) {
+        warn("Memory leaks detected on exit.\n", .{});
+    };
 
     // Create the server.
-    const server = Server.create(config.address, allocator) catch return 1;
+    const server = Server.create(config.address, &gp_allocator.allocator) catch return 1;
     defer server.destroy();
 
     // Create pre-defined channels and automatic users.
