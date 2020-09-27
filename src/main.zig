@@ -141,29 +141,22 @@ const EscapeFormatter = struct {
         return self._slice;
     }
 
-    //    fn format(
-    //        self: EscapeFormatter,
-    //        comptime fmt: []const u8,
-    //        context: var,
-    //        comptime FmtError: type,
-    //        output: fn (@typeOf(context), []const u8) FmtError!void,
-    //    ) FmtError!void {
-    //        if (fmt.len > 0)
-    //            @compileError("Unknown format character: " ++ []u8{fmt[0]});
-    //
-    //        for (self._slice) |char| {
-    //            if (char == '\\') {
-    //                try output(context, "\\\\");
-    //            } else if (char >= ' ' and char <= '~') {
-    //                try output(context, []u8{char});
-    //            } else {
-    //                try output(context, "\\x");
-    //                try output(context, []u8{'0' + (char / 10)});
-    //                try output(context, []u8{'0' + (char % 10)});
-    //            }
-    //        }
-    //        return {};
-    //    }
+    pub fn format(self: EscapeFormatter, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: anytype) !void {
+        if (fmt.len > 0)
+            @compileError("Unknown format character: '" ++ fmt ++ "'");
+
+        for (self._slice) |char| {
+            if (char == '\\') {
+                try out_stream.writeAll("\\\\");
+            } else if (char >= ' ' and char <= '~') {
+                try out_stream.writeAll(&[_]u8{char});
+            } else {
+                try out_stream.writeAll("\\x");
+                try out_stream.writeAll(&[_]u8{'0' + (char / 10)});
+                try out_stream.writeAll(&[_]u8{'0' + (char % 10)});
+            }
+        }
+    }
 };
 
 /// Alias for EscapeFormatter.init().
@@ -183,21 +176,15 @@ const ConditionalEscapeFormatter = struct {
         };
     }
 
-    //    fn format(
-    //        self: ConditionalEscapeFormatter,
-    //        comptime fmt: []const u8,
-    //        context: var,
-    //        comptime FmtError: type,
-    //        output: fn (@typeOf(context), []const u8) FmtError!void,
-    //    ) FmtError!void {
-    //        if (fmt.len > 0)
-    //            @compileError("Unknown format character: " ++ []u8{fmt[0]});
-    //
-    //        if (self._cond.*) {
-    //            try self._escape.format(fmt, context, FmtError, output);
-    //        } else
-    //            try output(context, self._escape.getSlice());
-    //    }
+    pub fn format(self: ConditionalEscapeFormatter, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: anytype) !void {
+        if (fmt.len > 0)
+            @compileError("Unknown format character: '" ++ fmt ++ "'");
+
+        if (self._cond.*) {
+            try self._escape.format(fmt, options, out_stream);
+        } else
+            try out_stream.writeAll(self._escape.getSlice());
+    }
 };
 
 /// Alias for ConditionalEscapeFormatter.init().
