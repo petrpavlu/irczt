@@ -229,6 +229,18 @@ const User = struct {
             },
         }
     }
+
+    fn sendPrivMsg(self: *User, from: []const u8, to: []const u8, text: []const u8) void {
+        switch (self.type_) {
+            User.Type.Client => {
+                return Client.fromUser(self).sendPrivMsg(from, to, text);
+            },
+            User.Type.LocalBot => {
+                // TODO Implement.
+                unreachable;
+            },
+        }
+    }
 };
 
 const UserSet = avl.Map(*User, void, avl.getLessThanFn(*User));
@@ -304,6 +316,11 @@ const Client = struct {
         os.close(self._fd);
         self._info("Closed client connection.\n", .{});
         self._allocator.destroy(self);
+    }
+
+    fn fromUser(user: *User) *Client {
+        assert(user.type_ == User.Type.Client);
+        return @fieldParentPtr(Client, "_user", user);
     }
 
     fn fromConstUser(user: *const User) *const Client {
@@ -492,6 +509,26 @@ const Client = struct {
         // Send RPL_ENDOFNAMES.
         //try self._sendMessage(&ec, ":{} 366 {} {} :End of /NAMES list", .{self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
     }
+
+    /// Process the PRIVMSG command.
+    /// Parameters: <receiver>{,<receiver>} <text to be sent>
+    fn _processCommand_PRIVMSG(self: *Client, lexer: *Lexer) !void {
+        try self._checkRegistered();
+
+        // TODO Parse all parameters.
+        const receiver_name = try self._acceptParam(lexer, "<receiver>");
+        const text = try self._acceptParam(lexer, "<text to be sent>");
+
+        const nickname = self.getNickName();
+        var ec: bool = undefined;
+
+        // TODO Handle messages to users too.
+        const channel = self._server.lookupChannel(receiver_name) orelse {
+            // Send ERR_NOSUCHNICK.
+            try self._sendMessage(&ec, ":{} 401 {} {} :No such nick/channel", .{ self._server.getHostName(), CProtect(nickname, &ec), CProtect(receiver_name, &ec) });
+            return;
+        };
+        channel.sendPrivMsg(&self._user, text);
     }
 
     /// Send a message to the client.
@@ -532,6 +569,8 @@ const Client = struct {
             res = self._processCommand_LIST(&lexer);
         } else if (mem.eql(u8, command, "JOIN")) {
             res = self._processCommand_JOIN(&lexer);
+        } else if (mem.eql(u8, command, "PRIVMSG")) {
+            res = self._processCommand_PRIVMSG(&lexer);
         } else
             self._warn("Unrecognized command: {}\n", .{Protect(command)});
 
@@ -613,6 +652,13 @@ const Client = struct {
         }
         return read;
     }
+
+    fn sendPrivMsg(self: *Client, from: []const u8, to: []const u8, text: []const u8) void {
+        var ec: bool = undefined;
+
+        // TODO Error handling.
+        self._sendMessage(&ec, ":{} PRIVMSG {} :{}", .{ CProtect(from, &ec), CProtect(to, &ec), CProtect(text, &ec) }) catch {};
+    }
 };
 
 const ClientSet = avl.Map(*Client, void, avl.getLessThanFn(*Client));
@@ -684,6 +730,17 @@ const Channel = struct {
         };
         // TODO Inform other clients about the join.
         self._info("User {} joined the channel.\n", .{Protect(user.getName())});
+    }
+
+    /// Send a message to all users in the channel.
+    fn sendPrivMsg(self: *Channel, user: *const User, text: []const u8) void {
+        const from_name = user.getName();
+        self._info("Received message (PRIVMSG) from {}: {}.\n", .{ Protect(from_name), Protect(text) });
+
+        var channel_user_iter = self._users.iterator();
+        while (channel_user_iter.next()) |channel_user| {
+            channel_user.key().sendPrivMsg(from_name, self._name, text);
+        }
     }
 };
 
