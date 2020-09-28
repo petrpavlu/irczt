@@ -222,10 +222,10 @@ const User = struct {
 
     _nickname: []u8,
 
-    fn init(type_: Type, nickname: []const u8, server: *Server, allocator: *Allocator) !User {
+    fn init(type_: Type, nickname: []const u8, server: *Server, allocator: *Allocator, msg_prefix: anytype) !User {
         // Make a copy of the nickname string.
         const nickname_copy = allocator.alloc(u8, nickname.len) catch |err| {
-            warn("Failed to allocate a nickname string buffer: {}.\n", .{@errorName(err)});
+            warn("{}: Failed to allocate a nickname string buffer: {}.\n", .{ msg_prefix, @errorName(err) });
             return err;
         };
         errdefer allocator.free(nickname_copy);
@@ -324,7 +324,7 @@ const Client = struct {
         };
         const file = fs.File{ .handle = fd };
         client.* = Client{
-            ._user = try User.init(User.Type.Client, "<unnamed>", server, allocator),
+            ._user = try User.init(User.Type.Client, "<unnamed>", server, allocator, addr),
             ._fd = fd,
             ._addr = addr,
             ._file_writer = file.writer(),
@@ -708,6 +708,45 @@ const Client = struct {
 
 const ClientSet = avl.Map(*Client, void, avl.getLessThanFn(*Client));
 
+const LocalBot = struct {
+    /// User definition.
+    _user: User,
+
+    /// Create a new local bot instance.
+    fn create(nickname: []const u8, server: *Server, allocator: *Allocator) !*LocalBot {
+        info("{}: Creating the local bot.\n", .{Protect(nickname)});
+
+        const local_bot = allocator.create(LocalBot) catch |err| {
+            warn("{}: Failed to allocate a local bot instance: {}.\n", .{ Protect(nickname), @errorName(err) });
+            return err;
+        };
+        local_bot.* = LocalBot{
+            ._user = try User.init(User.Type.LocalBot, nickname, server, allocator, Protect(nickname)),
+        };
+        return local_bot;
+    }
+
+    fn destroy(self: *LocalBot) void {
+        self._info("Destroying the local bot.\n", .{});
+
+        const allocator = self._user._allocator;
+        self._user.deinit();
+        allocator.destroy(self);
+    }
+
+    fn _info(self: *LocalBot, comptime fmt: []const u8, args: anytype) void {
+        const nickname = Protect(self._user._nickname);
+        info("{}: " ++ fmt, .{nickname} ++ args);
+    }
+
+    fn _warn(self: *LocalBot, comptime fmt: []const u8, args: anytype) void {
+        const nickname = Protect(self._user._nickname);
+        warn("{}: " ++ fmt, .{nickname} ++ args);
+    }
+};
+
+const LocalBotSet = avl.Map(*LocalBot, void, avl.getLessThanFn(*LocalBot));
+
 const Channel = struct {
     _server: *Server,
     _allocator: *Allocator,
@@ -808,6 +847,9 @@ const Server = struct {
     /// Remote clients (owned).
     _clients: ClientSet,
 
+    /// Local bots (owned).
+    _local_bots: LocalBotSet,
+
     /// Channels (owned).
     _channels: ChannelSet,
 
@@ -865,6 +907,7 @@ const Server = struct {
             ._host = host_copy,
             ._port = port_copy,
             ._clients = ClientSet.init(allocator),
+            ._local_bots = LocalBotSet.init(allocator),
             ._channels = ChannelSet.init(allocator),
             ._channels_by_name = ChannelNameSet.init(allocator),
         };
@@ -879,6 +922,14 @@ const Server = struct {
             client.destroy();
         }
         self._clients.deinit();
+
+        // Destroy all local bots.
+        var local_bot_iter = self._local_bots.iterator();
+        while (local_bot_iter.next()) |local_bot_node| {
+            const local_bot = local_bot_node.key();
+            local_bot.destroy();
+        }
+        self._local_bots.deinit();
 
         // Destroy all channels.
         var channel_iter = self._channels.iterator();
@@ -1042,8 +1093,15 @@ const Server = struct {
         return if (channel_iter.valid()) channel_iter.value() else null;
     }
 
-    fn createLocalBot(self: *Server, name: []const u8) void {
-        // TODO
+    /// Create a new local bot with the given name.
+    fn createLocalBot(self: *Server, nickname: []const u8) !void {
+        const local_bot = try LocalBot.create(nickname, self, self._allocator);
+        errdefer local_bot.destroy();
+
+        const local_bot_iter = self._local_bots.insert(local_bot, {}) catch |err| {
+            warn("{}: Failed to insert the local bot in the main local bot set: {}.\n", .{ nickname, @errorName(err) });
+            return err;
+        };
     }
 };
 
@@ -1063,7 +1121,7 @@ pub fn main() u8 {
         server.createChannel(channel) catch return 1;
     }
     for (config.local_bots) |local_bot| {
-        server.createLocalBot(local_bot);
+        server.createLocalBot(local_bot) catch return 1;
     }
 
     // Run the server.
