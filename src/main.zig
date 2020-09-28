@@ -480,6 +480,18 @@ const Client = struct {
         // TODO Record joined channels.
         // TODO Report any error to the client.
         try channel.join(&self._user);
+
+        try self._sendMessage(&ec, ":{} JOIN {}", .{ CProtect(nickname, &ec), CProtect(channel_name, &ec) });
+
+        // TODO Sink in the client?
+        //const hostname = self._server.getHostName();
+        // Send RPL_TOPIC.
+        //try self._sendMessage(&ec, ":{} 332 {} {} :Topic", .{self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+        // Send RPL_NAMREPLY.
+        //try self._sendMessage(&ec, ":{} 353 {} {} :+setupji", .{self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+        // Send RPL_ENDOFNAMES.
+        //try self._sendMessage(&ec, ":{} 366 {} {} :End of /NAMES list", .{self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+    }
     }
 
     /// Send a message to the client.
@@ -663,6 +675,7 @@ const Channel = struct {
         warn("{}: " ++ fmt, .{name} ++ args);
     }
 
+    /// Process join from a user.
     fn join(self: *Channel, user: *User) !void {
         // TODO Fix handling of duplicated join.
         _ = self._users.insert(user, {}) catch |err| {
