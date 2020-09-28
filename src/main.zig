@@ -215,27 +215,58 @@ const User = struct {
         LocalBot,
     };
 
-    type_: Type,
+    _type: Type,
 
-    /// Get the preferred user name.
-    fn getName(self: *const User) []const u8 {
-        switch (self.type_) {
-            User.Type.Client => {
-                return Client.fromConstUser(self).getNickName();
-            },
-            User.Type.LocalBot => {
-                // TODO Implement.
-                unreachable;
-            },
-        }
+    _server: *Server,
+    _allocator: *Allocator,
+
+    _nickname: []u8,
+
+    fn init(type_: Type, nickname: []const u8, server: *Server, allocator: *Allocator) !User {
+        // Make a copy of the nickname string.
+        const nickname_copy = allocator.alloc(u8, nickname.len) catch |err| {
+            warn("Failed to allocate a nickname string buffer: {}.\n", .{@errorName(err)});
+            return err;
+        };
+        errdefer allocator.free(nickname_copy);
+        mem.copy(u8, nickname_copy, nickname);
+
+        return User{
+            ._type = type_,
+            ._server = server,
+            ._allocator = allocator,
+            ._nickname = nickname_copy,
+        };
+    }
+
+    fn deinit(self: *User) void {
+        self._allocator.free(self._nickname);
+    }
+
+    fn getNickName(self: *const User) []const u8 {
+        return self._nickname;
+    }
+
+    fn setNickName(self: *User, nickname: []const u8) !void {
+        // Make a copy of the nickname string.
+        const nickname_copy = self._allocator.alloc(u8, nickname.len) catch |err| {
+            warn("Failed to allocate a nickname string buffer: {}.\n", .{@errorName(err)});
+            return err;
+        };
+        errdefer self._allocator.free(nickname_copy);
+        mem.copy(u8, nickname_copy, nickname);
+
+        // Set the new nickname.
+        self._allocator.free(self._nickname);
+        self._nickname = nickname_copy;
     }
 
     fn sendPrivMsg(self: *User, from: []const u8, to: []const u8, text: []const u8) void {
-        switch (self.type_) {
-            User.Type.Client => {
+        switch (self._type) {
+            .Client => {
                 return Client.fromUser(self).sendPrivMsg(from, to, text);
             },
-            User.Type.LocalBot => {
+            .LocalBot => {
                 // TODO Implement.
                 unreachable;
             },
@@ -253,9 +284,12 @@ const Client = struct {
         Invalid,
         Invalid_CR,
     };
-
-    _server: *Server,
-    _allocator: *Allocator,
+    const RegistrationState = enum {
+        Init,
+        HasUSER,
+        HasNICK,
+        Complete,
+    };
 
     /// User definition.
     _user: User,
@@ -270,14 +304,12 @@ const Client = struct {
     _input_buffer: [512]u8,
     _input_received: usize,
 
-    /// Flag indicating whether the initial USER and NICK pair was already received and the client
+    /// Enum indicating whether the initial USER and NICK pair was already received and the client
     /// is fully joined.
-    _registered: bool,
+    _registration_state: RegistrationState,
 
     _realname: [512]u8,
     _realname_end: usize,
-    _nickname: [9]u8,
-    _nickname_end: usize,
 
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
     /// constructing the client fails, the file descriptor gets closed.
@@ -292,9 +324,7 @@ const Client = struct {
         };
         const file = fs.File{ .handle = fd };
         client.* = Client{
-            ._server = server,
-            ._allocator = allocator,
-            ._user = User{ .type_ = User.Type.Client },
+            ._user = try User.init(User.Type.Client, "<unnamed>", server, allocator),
             ._fd = fd,
             ._addr = addr,
             ._file_writer = file.writer(),
@@ -302,11 +332,9 @@ const Client = struct {
             ._input_state = Client.InputState.Normal,
             ._input_buffer = undefined,
             ._input_received = 0,
-            ._registered = false,
+            ._registration_state = RegistrationState.Init,
             ._realname = [_]u8{0} ** @typeInfo(@TypeOf(client._realname)).Array.len,
             ._realname_end = 0,
-            ._nickname = [_]u8{0} ** @typeInfo(@TypeOf(client._nickname)).Array.len,
-            ._nickname_end = 0,
         };
         return client;
     }
@@ -315,16 +343,19 @@ const Client = struct {
     fn destroy(self: *Client) void {
         os.close(self._fd);
         self._info("Closed client connection.\n", .{});
-        self._allocator.destroy(self);
+
+        const allocator = self._user._allocator;
+        self._user.deinit();
+        allocator.destroy(self);
     }
 
     fn fromUser(user: *User) *Client {
-        assert(user.type_ == User.Type.Client);
+        assert(user._type == User.Type.Client);
         return @fieldParentPtr(Client, "_user", user);
     }
 
     fn fromConstUser(user: *const User) *const Client {
-        assert(user.type_ == User.Type.Client);
+        assert(user._type == User.Type.Client);
         return @fieldParentPtr(Client, "_user", user);
     }
 
@@ -336,11 +367,6 @@ const Client = struct {
     /// Get a slice with the client's real name.
     fn getRealName(self: *const Client) []const u8 {
         return self._realname[0..self._realname_end];
-    }
-
-    /// Get a slice with the client's nick name.
-    fn getNickName(self: *const Client) []const u8 {
-        return self._nickname[0..self._nickname_end];
     }
 
     fn _info(self: *Client, comptime fmt: []const u8, args: anytype) void {
@@ -373,7 +399,7 @@ const Client = struct {
     /// Process the USER command.
     /// Parameters: <username> <hostname> <servername> <realname>
     fn _processCommand_USER(self: *Client, lexer: *Lexer) !void {
-        if (self._realname_end != 0) {
+        if (self._registration_state == .HasUSER or self._registration_state == .Complete) {
             // TODO Log an error.
             return error.AlreadyRegistred;
         }
@@ -388,24 +414,35 @@ const Client = struct {
 
         // TODO Check there no more unexpected parameters.
 
-        // Complete the join if the initial USER and NICK pair was already received.
-        if (!self._registered and self._nickname_end != 0) {
-            try self._completeRegistration();
+        // Progress the registration state.
+        switch (self._registration_state) {
+            .Init => {
+                self._registration_state = .HasUSER;
+            },
+            .HasNICK => {
+                self._registration_state = .Complete;
+                // Complete the join if the initial USER and NICK pair was already received.
+                try self._completeRegistration();
+            },
+            .HasUSER, .Complete => {
+                // States .HasUSER or .Complete are rejected earlier.
+                unreachable;
+            },
         }
     }
 
     /// Process the NICK command.
     /// Parameters: <nickname>
     fn _processCommand_NICK(self: *Client, lexer: *Lexer) !void {
-        const nickname = self._acceptParamMax(lexer, "<nickname>", self._nickname.len) catch |err| {
+        const nickname = self._acceptParamMax(lexer, "<nickname>", 9) catch |err| {
             if (err == error.NeedsMoreParams) {
                 return error.NoNickNameGiven;
             } else {
                 return err;
             }
         };
-        mem.copy(u8, self._nickname[0..], nickname);
-        self._nickname_end = nickname.len;
+        // TODO Report an error back to the client.
+        try self._user.setNickName(nickname);
 
         // TODO
         // ERR_ERRONEUSNICKNAME
@@ -413,20 +450,30 @@ const Client = struct {
 
         // TODO Check there no more unexpected parameters.
 
-        // Complete the join if the initial USER and NICK pair was already received.
-        if (!self._registered and self._realname_end != 0) {
-            try self._completeRegistration();
+        // Progress the registration state.
+        switch (self._registration_state) {
+            .Init => {
+                self._registration_state = .HasNICK;
+            },
+            .HasUSER => {
+                self._registration_state = .Complete;
+                // Complete the join if the initial USER and NICK pair was already received.
+                try self._completeRegistration();
+            },
+            .HasNICK, .Complete => {
+                // Do nothing for .HasNICK or .Complete. The NICK command is in this case not a part
+                // of the initial registration process.
+            },
         }
     }
 
     /// Complete the client join after the initial USER and NICK pair is received.
     fn _completeRegistration(self: *Client) !void {
-        assert(!self._registered);
+        assert(self._registration_state == .Complete);
         assert(self._realname_end != 0);
-        assert(self._nickname_end != 0);
 
-        const nickname = self.getNickName();
-        const hostname = self._server.getHostName();
+        const nickname = self._user.getNickName();
+        const hostname = self._user._server.getHostName();
         var ec: bool = undefined;
 
         // Send RPL_LUSERCLIENT.
@@ -439,17 +486,15 @@ const Client = struct {
         try self._sendMessage(&ec, ":{} 376 {} :End of /MOTD command.", .{ hostname, CProtect(nickname, &ec) });
 
         try self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", .{CProtect(nickname, &ec)});
-
-        self._registered = true;
     }
 
     /// Check whether the user has completed the initial registration and is fully joined. If not
     /// then send ERR_NOTREGISTERED to the client and return error.NotRegistered.
     fn _checkRegistered(self: *Client) !void {
-        if (self._registered) {
+        if (self._registration_state == .Complete) {
             return;
         }
-        try self._sendMessage(null, ":{} 451 * :You have not registered", .{self._server.getHostName()});
+        try self._sendMessage(null, ":{} 451 * :You have not registered", .{self._user._server.getHostName()});
         return error.NotRegistered;
     }
 
@@ -460,22 +505,22 @@ const Client = struct {
 
         // TODO Parse the parameters.
 
-        const nickname = self.getNickName();
+        const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
         // Send RPL_LISTSTART.
-        try self._sendMessage(&ec, ":{} 321 {} Channel :Users  Name", .{ self._server.getHostName(), CProtect(nickname, &ec) });
+        try self._sendMessage(&ec, ":{} 321 {} Channel :Users  Name", .{ self._user._server.getHostName(), CProtect(nickname, &ec) });
 
         // Send RPL_LIST for each channel.
-        const channels = self._server.getChannels();
+        const channels = self._user._server.getChannels();
         var channel_iter = channels.iterator();
         while (channel_iter.next()) |channel_node| {
             const channel = channel_node.key();
-            try self._sendMessage(&ec, ":{} 322 {} {} {} :", .{ self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel.getName(), &ec), channel.getUserCount() });
+            try self._sendMessage(&ec, ":{} 322 {} {} {} :", .{ self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel.getName(), &ec), channel.getUserCount() });
         }
 
         // Send RPL_LISTEND.
-        try self._sendMessage(&ec, ":{} 323 {} :End of /LIST", .{ self._server.getHostName(), CProtect(nickname, &ec) });
+        try self._sendMessage(&ec, ":{} 323 {} :End of /LIST", .{ self._user._server.getHostName(), CProtect(nickname, &ec) });
     }
 
     /// Process the JOIN command.
@@ -486,12 +531,12 @@ const Client = struct {
         // TODO Parse all parameters.
         const channel_name = try self._acceptParam(lexer, "<channel>");
 
-        const nickname = self.getNickName();
+        const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
-        const channel = self._server.lookupChannel(channel_name) orelse {
+        const channel = self._user._server.lookupChannel(channel_name) orelse {
             // Send ERR_NOSUCHCHANNEL.
-            try self._sendMessage(&ec, ":{} 403 {} {} :No such channel", .{ self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec) });
+            try self._sendMessage(&ec, ":{} 403 {} {} :No such channel", .{ self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec) });
             return;
         };
         // TODO Record joined channels.
@@ -501,13 +546,13 @@ const Client = struct {
         try self._sendMessage(&ec, ":{} JOIN {}", .{ CProtect(nickname, &ec), CProtect(channel_name, &ec) });
 
         // TODO Sink in the client?
-        //const hostname = self._server.getHostName();
+        //const hostname = self._user._server.getHostName();
         // Send RPL_TOPIC.
-        //try self._sendMessage(&ec, ":{} 332 {} {} :Topic", .{self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+        //try self._sendMessage(&ec, ":{} 332 {} {} :Topic", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
         // Send RPL_NAMREPLY.
-        //try self._sendMessage(&ec, ":{} 353 {} {} :+setupji", .{self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+        //try self._sendMessage(&ec, ":{} 353 {} {} :+setupji", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
         // Send RPL_ENDOFNAMES.
-        //try self._sendMessage(&ec, ":{} 366 {} {} :End of /NAMES list", .{self._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+        //try self._sendMessage(&ec, ":{} 366 {} {} :End of /NAMES list", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
     }
 
     /// Process the PRIVMSG command.
@@ -519,13 +564,13 @@ const Client = struct {
         const receiver_name = try self._acceptParam(lexer, "<receiver>");
         const text = try self._acceptParam(lexer, "<text to be sent>");
 
-        const nickname = self.getNickName();
+        const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
         // TODO Handle messages to users too.
-        const channel = self._server.lookupChannel(receiver_name) orelse {
+        const channel = self._user._server.lookupChannel(receiver_name) orelse {
             // Send ERR_NOSUCHNICK.
-            try self._sendMessage(&ec, ":{} 401 {} {} :No such nick/channel", .{ self._server.getHostName(), CProtect(nickname, &ec), CProtect(receiver_name, &ec) });
+            try self._sendMessage(&ec, ":{} 401 {} {} :No such nick/channel", .{ self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(receiver_name, &ec) });
             return;
         };
         channel.sendPrivMsg(&self._user, text);
@@ -725,16 +770,16 @@ const Channel = struct {
     fn join(self: *Channel, user: *User) !void {
         // TODO Fix handling of duplicated join.
         _ = self._users.insert(user, {}) catch |err| {
-            self._warn("Failed to insert user {} in the channel user set: {}.\n", .{ Protect(user.getName()), @errorName(err) });
+            self._warn("Failed to insert user {} in the channel user set: {}.\n", .{ Protect(user.getNickName()), @errorName(err) });
             return err;
         };
         // TODO Inform other clients about the join.
-        self._info("User {} joined the channel.\n", .{Protect(user.getName())});
+        self._info("User {} joined the channel.\n", .{Protect(user.getNickName())});
     }
 
     /// Send a message to all users in the channel.
     fn sendPrivMsg(self: *Channel, user: *const User, text: []const u8) void {
-        const from_name = user.getName();
+        const from_name = user.getNickName();
         self._info("Received message (PRIVMSG) from {}: {}.\n", .{ Protect(from_name), Protect(text) });
 
         var channel_user_iter = self._users.iterator();
