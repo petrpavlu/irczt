@@ -222,10 +222,10 @@ const User = struct {
 
     _nickname: []u8,
 
-    fn init(type_: Type, nickname: []const u8, server: *Server, allocator: *Allocator, msg_prefix: anytype) !User {
+    fn init(type_: Type, nickname: []const u8, server: *Server, allocator: *Allocator, init_prefix: anytype) !User {
         // Make a copy of the nickname string.
         const nickname_copy = allocator.alloc(u8, nickname.len) catch |err| {
-            warn("{}: Failed to allocate a nickname string buffer: {}.\n", .{ msg_prefix, @errorName(err) });
+            warn("{}: Failed to allocate a nickname string buffer: {}.\n", .{ init_prefix, @errorName(err) });
             return err;
         };
         errdefer allocator.free(nickname_copy);
@@ -250,7 +250,7 @@ const User = struct {
     fn setNickName(self: *User, nickname: []const u8) !void {
         // Make a copy of the nickname string.
         const nickname_copy = self._allocator.alloc(u8, nickname.len) catch |err| {
-            warn("Failed to allocate a nickname string buffer: {}.\n", .{@errorName(err)});
+            self._warn("Failed to allocate a nickname string buffer: {}.\n", .{@errorName(err)});
             return err;
         };
         errdefer self._allocator.free(nickname_copy);
@@ -259,6 +259,28 @@ const User = struct {
         // Set the new nickname.
         self._allocator.free(self._nickname);
         self._nickname = nickname_copy;
+    }
+
+    fn _info(self: *const User, comptime fmt: []const u8, args: anytype) void {
+        switch (self._type) {
+            .Client => {
+                return Client.fromConstUser(self)._info(fmt, args);
+            },
+            .LocalBot => {
+                return LocalBot.fromConstUser(self)._info(fmt, args);
+            },
+        }
+    }
+
+    fn _warn(self: *const User, comptime fmt: []const u8, args: anytype) void {
+        switch (self._type) {
+            .Client => {
+                return Client.fromConstUser(self)._warn(fmt, args);
+            },
+            .LocalBot => {
+                return LocalBot.fromConstUser(self)._warn(fmt, args);
+            },
+        }
     }
 
     fn sendPrivMsg(self: *User, from: []const u8, to: []const u8, text: []const u8) void {
@@ -316,7 +338,7 @@ const Client = struct {
     fn create(fd: i32, addr: net.Address, server: *Server, allocator: *Allocator) !*Client {
         errdefer os.close(fd);
 
-        info("{}: Accepted a new client.\n", .{addr});
+        info("{}: Creating the client.\n", .{addr});
 
         const client = allocator.create(Client) catch |err| {
             warn("{}: Failed to allocate a client instance: {}.\n", .{ addr, @errorName(err) });
@@ -341,6 +363,8 @@ const Client = struct {
 
     /// Close connection to a client and destroy the client data.
     fn destroy(self: *Client) void {
+        self._info("Destroying the client.\n", .{});
+
         os.close(self._fd);
         self._info("Closed client connection.\n", .{});
 
@@ -369,11 +393,11 @@ const Client = struct {
         return self._realname[0..self._realname_end];
     }
 
-    fn _info(self: *Client, comptime fmt: []const u8, args: anytype) void {
+    fn _info(self: *const Client, comptime fmt: []const u8, args: anytype) void {
         info("{}: " ++ fmt, .{self._addr} ++ args);
     }
 
-    fn _warn(self: *Client, comptime fmt: []const u8, args: anytype) void {
+    fn _warn(self: *const Client, comptime fmt: []const u8, args: anytype) void {
         warn("{}: " ++ fmt, .{self._addr} ++ args);
     }
 
@@ -734,12 +758,22 @@ const LocalBot = struct {
         allocator.destroy(self);
     }
 
-    fn _info(self: *LocalBot, comptime fmt: []const u8, args: anytype) void {
+    fn fromUser(user: *User) *LocalBot {
+        assert(user._type == User.Type.LocalBot);
+        return @fieldParentPtr(LocalBot, "_user", user);
+    }
+
+    fn fromConstUser(user: *const User) *const LocalBot {
+        assert(user._type == User.Type.LocalBot);
+        return @fieldParentPtr(LocalBot, "_user", user);
+    }
+
+    fn _info(self: *const LocalBot, comptime fmt: []const u8, args: anytype) void {
         const nickname = Protect(self._user._nickname);
         info("{}: " ++ fmt, .{nickname} ++ args);
     }
 
-    fn _warn(self: *LocalBot, comptime fmt: []const u8, args: anytype) void {
+    fn _warn(self: *const LocalBot, comptime fmt: []const u8, args: anytype) void {
         const nickname = Protect(self._user._nickname);
         warn("{}: " ++ fmt, .{nickname} ++ args);
     }
@@ -759,9 +793,11 @@ const Channel = struct {
 
     /// Create a new channel with the given name.
     fn create(name: []const u8, server: *Server, allocator: *Allocator) !*Channel {
+        info("{}: Creating the channel.\n", .{Protect(name)});
+
         // Make a copy of the name string.
         const name_copy = allocator.alloc(u8, name.len) catch |err| {
-            warn("Failed to allocate a channel name string buffer: {}.\n", .{@errorName(err)});
+            warn("{}: Failed to allocate a channel name string buffer: {}.\n", .{ Protect(name), @errorName(err) });
             return err;
         };
         errdefer allocator.free(name_copy);
@@ -769,7 +805,7 @@ const Channel = struct {
 
         // Allocate a channel instance.
         const channel = allocator.create(Channel) catch |err| {
-            warn("Failed to allocate a channel instance: {}.\n", .{@errorName(err)});
+            warn("{}: Failed to allocate a channel instance: {}.\n", .{ Protect(name), @errorName(err) });
             return err;
         };
         channel.* = Channel{
@@ -782,6 +818,8 @@ const Channel = struct {
     }
 
     fn destroy(self: *Channel) void {
+        self._info("Destroying the channel.\n", .{});
+
         // TODO Process _users.
         self._allocator.free(self._name);
         self._allocator.destroy(self);
@@ -795,12 +833,12 @@ const Channel = struct {
         return self._users.count();
     }
 
-    fn _info(self: *Channel, comptime fmt: []const u8, args: anytype) void {
+    fn _info(self: *const Channel, comptime fmt: []const u8, args: anytype) void {
         const name = Protect(self._name);
         info("{}: " ++ fmt, .{name} ++ args);
     }
 
-    fn _warn(self: *Channel, comptime fmt: []const u8, args: anytype) void {
+    fn _warn(self: *const Channel, comptime fmt: []const u8, args: anytype) void {
         const name = Protect(self._name);
         warn("{}: " ++ fmt, .{name} ++ args);
     }
@@ -1037,7 +1075,7 @@ const Server = struct {
         errdefer client.destroy();
 
         const client_iter = self._clients.insert(client, {}) catch |err| {
-            warn("{}: Failed to insert a client in the main client set: {}.\n", .{ client_addr, @errorName(err) });
+            warn("{}: Failed to insert the client in the main client set: {}.\n", .{ client_addr, @errorName(err) });
             return;
         };
         errdefer self._clients.remove(client_iter);
@@ -1048,7 +1086,7 @@ const Server = struct {
             .data = os.epoll_data{ .ptr = @ptrToInt(client) },
         };
         os.epoll_ctl(epfd, os.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
-            warn("{}: Failed to add a client socket (file descriptor {}) to the epoll instance: {}.\n", .{ client_addr, clientfd, @errorName(err) });
+            warn("{}: Failed to add the client socket (file descriptor {}) to the epoll instance: {}.\n", .{ client_addr, clientfd, @errorName(err) });
             return;
         };
     }
@@ -1076,13 +1114,13 @@ const Server = struct {
         errdefer channel.destroy();
 
         const channel_iter = self._channels.insert(channel, {}) catch |err| {
-            warn("Failed to insert a channel in the main channel set: {}.\n", .{@errorName(err)});
+            warn("{}: Failed to insert the channel in the main channel set: {}.\n", .{ Protect(name), @errorName(err) });
             return err;
         };
         errdefer self._channels.remove(channel_iter);
 
         _ = self._channels_by_name.insert(channel.getName(), channel) catch |err| {
-            warn("Failed to insert a channel in the by-name channel set: {}.\n", .{@errorName(err)});
+            warn("{}: Failed to insert the channel in the by-name channel set: {}.\n", .{ Protect(name), @errorName(err) });
             return err;
         };
     }
@@ -1099,7 +1137,7 @@ const Server = struct {
         errdefer local_bot.destroy();
 
         const local_bot_iter = self._local_bots.insert(local_bot, {}) catch |err| {
-            warn("{}: Failed to insert the local bot in the main local bot set: {}.\n", .{ nickname, @errorName(err) });
+            warn("{}: Failed to insert the local bot in the main local bot set: {}.\n", .{ Protect(nickname), @errorName(err) });
             return err;
         };
     }
