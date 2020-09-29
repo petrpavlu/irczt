@@ -6,11 +6,11 @@ pub const address = "127.0.0.1:6667";
 
 /// Pre-defined channels.
 pub const channels = [_][]const u8{
-    "#everyday",
     "#future",
     "#movies",
     "#music",
     "#nature",
+    "#news",
 };
 
 /// Fake local users.
