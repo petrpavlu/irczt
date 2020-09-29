@@ -223,6 +223,9 @@ const User = struct {
 
     _nickname: []u8,
 
+    /// Joined channels.
+    _channels: ChannelSet,
+
     fn init(type_: Type, nickname: []const u8, server: *Server, allocator: *Allocator, init_prefix: anytype) !User {
         // Make a copy of the nickname string.
         const nickname_copy = allocator.alloc(u8, nickname.len) catch |err| {
@@ -237,10 +240,12 @@ const User = struct {
             ._server = server,
             ._allocator = allocator,
             ._nickname = nickname_copy,
+            ._channels = ChannelSet.init(allocator),
         };
     }
 
     fn deinit(self: *User) void {
+        self._channels.deinit();
         self._allocator.free(self._nickname);
     }
 
@@ -280,6 +285,28 @@ const User = struct {
             },
             .LocalBot => {
                 return LocalBot.fromConstUser(self)._warn(fmt, args);
+            },
+        }
+    }
+
+    /// Join a specified channel.
+    fn _joinChannel(self: *User, channel: *Channel) !void {
+        const channel_iter = self._channels.insert(channel, {}) catch |err| {
+            self._warn("Failed to insert channel {} in the channel set: {}.\n", .{ Protect(channel.getName()), @errorName(err) });
+            return err;
+        };
+        errdefer self._channels.remove(channel_iter);
+
+        try channel.join(self);
+    }
+
+    fn sendMessage(self: *User, escape_cond: ?*bool, comptime fmt: []const u8, args: anytype) !void {
+        switch (self._type) {
+            .Client => {
+                return Client.fromUser(self)._sendMessage(escape_cond, fmt, args);
+            },
+            .LocalBot => {
+                // Ignore because local bots do not send messages anywhere.
             },
         }
     }
@@ -564,20 +591,8 @@ const Client = struct {
             try self._sendMessage(&ec, ":{} 403 {} {} :No such channel", .{ self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec) });
             return;
         };
-        // TODO Record joined channels.
         // TODO Report any error to the client.
-        try channel.join(&self._user);
-
-        try self._sendMessage(&ec, ":{} JOIN {}", .{ CProtect(nickname, &ec), CProtect(channel_name, &ec) });
-
-        // TODO Sink in the client?
-        //const hostname = self._user._server.getHostName();
-        // Send RPL_TOPIC.
-        //try self._sendMessage(&ec, ":{} 332 {} {} :Topic", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
-        // Send RPL_NAMREPLY.
-        //try self._sendMessage(&ec, ":{} 353 {} {} :+setupji", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
-        // Send RPL_ENDOFNAMES.
-        //try self._sendMessage(&ec, ":{} 366 {} {} :End of /NAMES list", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+        try self._user._joinChannel(channel);
     }
 
     /// Process the PRIVMSG command.
@@ -852,7 +867,21 @@ const Channel = struct {
             return err;
         };
         // TODO Inform other clients about the join.
-        self._info("User {} joined the channel.\n", .{Protect(user.getNickName())});
+
+        const nickname = user.getNickName();
+        var ec: bool = undefined;
+
+        try user.sendMessage(&ec, ":{} JOIN {}", .{ CProtect(nickname, &ec), CProtect(self._name, &ec) });
+        self._info("User {} joined the channel (now at {} users).\n", .{ Protect(nickname), self._users.count() });
+
+        // TODO Sink in the client?
+        //const hostname = self._user._server.getHostName();
+        // Send RPL_TOPIC.
+        //try self._sendMessage(&ec, ":{} 332 {} {} :Topic", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+        // Send RPL_NAMREPLY.
+        //try self._sendMessage(&ec, ":{} 353 {} {} :+setupji", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+        // Send RPL_ENDOFNAMES.
+        //try self._sendMessage(&ec, ":{} 366 {} {} :End of /NAMES list", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
     }
 
     /// Send a message to all users in the channel.
@@ -992,7 +1021,7 @@ const Server = struct {
         return self._host;
     }
 
-    fn getChannels(self: *Server) *ChannelSet {
+    fn getChannels(self: *Server) *const ChannelSet {
         return &self._channels;
     }
 
