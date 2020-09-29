@@ -844,7 +844,7 @@ const Channel = struct {
     fn destroy(self: *Channel) void {
         self._info("Destroying the channel.\n", .{});
 
-        // TODO Process _users.
+        self._users.deinit();
         self._allocator.free(self._name);
         self._allocator.destroy(self);
     }
