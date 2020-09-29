@@ -793,6 +793,14 @@ const LocalBot = struct {
         const nickname = Protect(self._user._nickname);
         warn("{}: " ++ fmt, .{nickname} ++ args);
     }
+
+    // TODO Caller must make sure that channels exist.
+    fn joinChannels(self: *LocalBot, channels: []const []const u8) !void {
+        for (channels) |channel_name| {
+            const channel = self._user._server.lookupChannel(channel_name) orelse unreachable;
+            try self._user._joinChannel(channel);
+        }
+    }
 };
 
 const LocalBotSet = avl.Map(*LocalBot, void, avl.getLessThanFn(*LocalBot));
@@ -1166,7 +1174,8 @@ const Server = struct {
     }
 
     /// Create a new local bot with the given name.
-    fn createLocalBot(self: *Server, nickname: []const u8) !void {
+    fn createLocalBot(self: *Server, bot_config: config.LocalBotConfig) !void {
+        const nickname = bot_config.nickname;
         const local_bot = try LocalBot.create(nickname, self, self._allocator);
         errdefer local_bot.destroy();
 
@@ -1174,6 +1183,10 @@ const Server = struct {
             warn("{}: Failed to insert the local bot in the main local bot set: {}.\n", .{ Protect(nickname), @errorName(err) });
             return err;
         };
+        errdefer self._local_bots.remove(local_bot_iter);
+
+        // Join pre-configurated channels.
+        try local_bot.joinChannels(bot_config.channels);
     }
 };
 
