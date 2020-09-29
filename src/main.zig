@@ -8,6 +8,7 @@ const math = std.math;
 const mem = std.mem;
 const net = std.net;
 const os = std.os;
+const rand = std.rand;
 const time = std.time;
 
 const Allocator = std.mem.Allocator;
@@ -873,6 +874,9 @@ const ChannelNameSet = avl.Map([]const u8, *Channel, avl.getLessThanFn([]const u
 const Server = struct {
     _allocator: *Allocator,
 
+    /// Random number generator.
+    _random: *rand.Random,
+
     /// Socket address.
     _sockaddr: net.Address,
 
@@ -894,7 +898,7 @@ const Server = struct {
     /// Channels organized for fast lookup by name.
     _channels_by_name: ChannelNameSet,
 
-    fn create(address: []const u8, allocator: *Allocator) !*Server {
+    fn create(address: []const u8, allocator: *Allocator, random: *rand.Random) !*Server {
         // Parse the address.
         var host_end: usize = address.len;
         var port_start: usize = address.len;
@@ -941,6 +945,7 @@ const Server = struct {
         };
         server.* = Server{
             ._allocator = allocator,
+            ._random = random,
             ._sockaddr = parsed_address,
             ._host = host_copy,
             ._port = port_copy,
@@ -1150,8 +1155,17 @@ pub fn main() u8 {
         warn("Memory leaks detected on exit.\n", .{});
     };
 
+    // Initialize a random number generator.
+    var rand_buffer: [8]u8 = undefined;
+    std.crypto.randomBytes(rand_buffer[0..]) catch |err| {
+        warn("Failed to obtain random bytes to initialize a random number generator: {}.\n", .{@errorName(err)});
+        return 1;
+    };
+    const seed = mem.readIntLittle(u64, rand_buffer[0..8]);
+    var prng = rand.DefaultPrng.init(seed);
+
     // Create the server.
-    const server = Server.create(config.address, &gp_allocator.allocator) catch return 1;
+    const server = Server.create(config.address, &gp_allocator.allocator, &prng.random) catch return 1;
     defer server.destroy();
 
     // Create pre-defined channels and automatic users.
