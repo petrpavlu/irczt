@@ -287,7 +287,7 @@ const User = struct {
     fn sendPrivMsg(self: *User, from: []const u8, to: []const u8, text: []const u8) void {
         switch (self._type) {
             .Client => {
-                return Client.fromUser(self).sendPrivMsg(from, to, text);
+                return Client.fromUser(self)._sendPrivMsg(from, to, text);
             },
             .LocalBot => {
                 // TODO Implement.
@@ -723,7 +723,7 @@ const Client = struct {
         return read;
     }
 
-    fn sendPrivMsg(self: *Client, from: []const u8, to: []const u8, text: []const u8) void {
+    fn _sendPrivMsg(self: *Client, from: []const u8, to: []const u8, text: []const u8) void {
         var ec: bool = undefined;
 
         // TODO Error handling.
