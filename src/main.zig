@@ -1070,36 +1070,64 @@ const Channel = struct {
     /// Process join from a user.
     fn join(self: *Channel, user: *User) !void {
         // TODO Fix handling of duplicated join.
-        _ = self._users.insert(user, {}) catch |err| {
+        const user_iter = self._users.insert(user, {}) catch |err| {
             self._warn(
                 "Failed to insert user {} in the channel user set: {}.\n",
                 .{ Protect(user.getNickName()), @errorName(err) },
             );
             return err;
         };
-        // TODO Inform other clients about the join.
+        errdefer self._users.remove(user_iter);
 
         const nickname = user.getNickName();
+        const hostname = self._server.getHostName();
         var ec: bool = undefined;
 
-        user.sendMessage(
-            &ec,
-            ":{} JOIN {}",
-            .{ CProtect(nickname, &ec), CProtect(self._name, &ec) },
-        );
         self._info(
             "User {} joined the channel (now at {} users).\n",
             .{ Protect(nickname), self._users.count() },
         );
 
-        // TODO Sink in the client?
-        //const hostname = self._user._server.getHostName();
+        // Inform all clients about the join.
+        var channel_user_iter = self._users.iterator();
+        while (channel_user_iter.next()) |channel_user_node| {
+            const channel_user = channel_user_node.key();
+            channel_user.sendMessage(
+                &ec,
+                ":{} JOIN {}",
+                .{ CProtect(nickname, &ec), CProtect(self._name, &ec) },
+            );
+        }
+
         // Send RPL_TOPIC.
-        //try self._sendMessage(&ec, ":{} 332 {} {} :Topic", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+        // TODO Report a correct topic.
+        user.sendMessage(
+            &ec,
+            ":{} 332 {} {} :Topic",
+            .{ hostname, CProtect(nickname, &ec), CProtect(self._name, &ec) },
+        );
+
         // Send RPL_NAMREPLY.
-        //try self._sendMessage(&ec, ":{} 353 {} {} :+setupji", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+        channel_user_iter = self._users.iterator();
+        while (channel_user_iter.next()) |channel_user_node| {
+            const channel_user = channel_user_node.key();
+            user.sendMessage(
+                &ec,
+                ":{} 353 {} = {} :{}",
+                .{
+                    hostname,
+                    CProtect(nickname, &ec),
+                    CProtect(self._name, &ec),
+                    CProtect(channel_user.getNickName(), &ec),
+                },
+            );
+        }
         // Send RPL_ENDOFNAMES.
-        //try self._sendMessage(&ec, ":{} 366 {} {} :End of /NAMES list", .{self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec)});
+        user.sendMessage(
+            &ec,
+            ":{} 366 {} {} :End of /NAMES list",
+            .{ hostname, CProtect(nickname, &ec), CProtect(self._name, &ec) },
+        );
     }
 
     /// Send a message to all users in the channel.
