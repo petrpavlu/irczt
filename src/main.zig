@@ -1105,11 +1105,6 @@ const Channel = struct {
     /// Send a message to all users in the channel.
     fn sendPrivMsg(self: *Channel, user: *const User, text: []const u8) void {
         const from_name = user.getNickName();
-        self._info(
-            "Received message (PRIVMSG) from {}: {}.\n",
-            .{ Protect(from_name), Protect(text) },
-        );
-
         var channel_user_iter = self._users.iterator();
         while (channel_user_iter.next()) |channel_user_node| {
             const channel_user = channel_user_node.key();
