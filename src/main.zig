@@ -97,7 +97,12 @@ const EscapeFormatter = struct {
         return self._slice;
     }
 
-    pub fn format(self: EscapeFormatter, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: anytype) !void {
+    pub fn format(
+        self: EscapeFormatter,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        out_stream: anytype,
+    ) !void {
         if (fmt.len > 0) {
             @compileError("Unknown format character: '" ++ fmt ++ "'");
         }
@@ -133,7 +138,12 @@ const ConditionalEscapeFormatter = struct {
         };
     }
 
-    pub fn format(self: ConditionalEscapeFormatter, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: anytype) !void {
+    pub fn format(
+        self: ConditionalEscapeFormatter,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        out_stream: anytype,
+    ) !void {
         if (fmt.len > 0) {
             @compileError("Unknown format character: '" ++ fmt ++ "'");
         }
@@ -226,10 +236,19 @@ const User = struct {
     /// Joined channels.
     _channels: ChannelSet,
 
-    fn init(type_: Type, nickname: []const u8, server: *Server, allocator: *Allocator, init_prefix: anytype) !User {
+    fn init(
+        type_: Type,
+        nickname: []const u8,
+        server: *Server,
+        allocator: *Allocator,
+        init_prefix: anytype,
+    ) !User {
         // Make a copy of the nickname string.
         const nickname_copy = allocator.alloc(u8, nickname.len) catch |err| {
-            warn("{}: Failed to allocate a nickname string buffer: {}.\n", .{ init_prefix, @errorName(err) });
+            warn(
+                "{}: Failed to allocate a nickname string buffer: {}.\n",
+                .{ init_prefix, @errorName(err) },
+            );
             return err;
         };
         errdefer allocator.free(nickname_copy);
@@ -292,7 +311,10 @@ const User = struct {
     /// Join a specified channel.
     fn _joinChannel(self: *User, channel: *Channel) !void {
         const channel_iter = self._channels.insert(channel, {}) catch |err| {
-            self._warn("Failed to insert channel {} in the channel set: {}.\n", .{ Protect(channel.getName()), @errorName(err) });
+            self._warn(
+                "Failed to insert channel {} in the channel set: {}.\n",
+                .{ Protect(channel.getName()), @errorName(err) },
+            );
             return err;
         };
         errdefer self._channels.remove(channel_iter);
@@ -300,7 +322,12 @@ const User = struct {
         try channel.join(self);
     }
 
-    fn sendMessage(self: *User, escape_cond: ?*bool, comptime fmt: []const u8, args: anytype) !void {
+    fn sendMessage(
+        self: *User,
+        escape_cond: ?*bool,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) !void {
         switch (self._type) {
             .Client => {
                 return Client.fromUser(self)._sendMessage(escape_cond, fmt, args);
@@ -437,7 +464,10 @@ const Client = struct {
             return error.NeedsMoreParams;
         }
         if (res.len > maxlen) {
-            self._warn("Position {}, parameter {} is too long (maximum: {}, actual: {}).\n", .{ begin + 1, param, maxlen, res.len });
+            self._warn(
+                "Position {}, parameter {} is too long (maximum: {}, actual: {}).\n",
+                .{ begin + 1, param, maxlen, res.len },
+            );
             // IRC has no error reply for too long parameters, so cut-off the value.
             return res[0..maxlen];
         }
@@ -530,12 +560,28 @@ const Client = struct {
 
         // Send RPL_LUSERCLIENT.
         // TODO Fix user count.
-        try self._sendMessage(&ec, ":{} 251 {} :There are {} users and 0 invisible on 1 servers", .{ hostname, CProtect(nickname, &ec), 1 });
+        try self._sendMessage(
+            &ec,
+            ":{} 251 {} :There are {} users and 0 invisible on 1 servers",
+            .{ hostname, CProtect(nickname, &ec), 1 },
+        );
 
         // Send motd.
-        try self._sendMessage(&ec, ":{} 375 {} :- {} Message of the Day -", .{ hostname, CProtect(nickname, &ec), hostname });
-        try self._sendMessage(&ec, ":{} 372 {} :- Welcome to the {} IRC network!", .{ hostname, CProtect(nickname, &ec), hostname });
-        try self._sendMessage(&ec, ":{} 376 {} :End of /MOTD command.", .{ hostname, CProtect(nickname, &ec) });
+        try self._sendMessage(
+            &ec,
+            ":{} 375 {} :- {} Message of the Day -",
+            .{ hostname, CProtect(nickname, &ec), hostname },
+        );
+        try self._sendMessage(
+            &ec,
+            ":{} 372 {} :- Welcome to the {} IRC network!",
+            .{ hostname, CProtect(nickname, &ec), hostname },
+        );
+        try self._sendMessage(
+            &ec,
+            ":{} 376 {} :End of /MOTD command.",
+            .{ hostname, CProtect(nickname, &ec) },
+        );
 
         try self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", .{CProtect(nickname, &ec)});
     }
@@ -546,7 +592,11 @@ const Client = struct {
         if (self._registration_state == .Complete) {
             return;
         }
-        try self._sendMessage(null, ":{} 451 * :You have not registered", .{self._user._server.getHostName()});
+        try self._sendMessage(
+            null,
+            ":{} 451 * :You have not registered",
+            .{self._user._server.getHostName()},
+        );
         return error.NotRegistered;
     }
 
@@ -558,21 +608,36 @@ const Client = struct {
         // TODO Parse the parameters.
 
         const nickname = self._user.getNickName();
+        const hostname = self._user._server.getHostName();
         var ec: bool = undefined;
 
         // Send RPL_LISTSTART.
-        try self._sendMessage(&ec, ":{} 321 {} Channel :Users  Name", .{ self._user._server.getHostName(), CProtect(nickname, &ec) });
+        try self._sendMessage(
+            &ec,
+            ":{} 321 {} Channel :Users  Name",
+            .{ hostname, CProtect(nickname, &ec) },
+        );
 
         // Send RPL_LIST for each channel.
         const channels = self._user._server.getChannels();
         var channel_iter = channels.iterator();
         while (channel_iter.next()) |channel_node| {
             const channel = channel_node.key();
-            try self._sendMessage(&ec, ":{} 322 {} {} {} :", .{ self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel.getName(), &ec), channel.getUserCount() });
+            const name = channel.getName();
+            const user_count = channel.getUserCount();
+            try self._sendMessage(
+                &ec,
+                ":{} 322 {} {} {} :",
+                .{ hostname, CProtect(nickname, &ec), CProtect(name, &ec), user_count },
+            );
         }
 
         // Send RPL_LISTEND.
-        try self._sendMessage(&ec, ":{} 323 {} :End of /LIST", .{ self._user._server.getHostName(), CProtect(nickname, &ec) });
+        try self._sendMessage(
+            &ec,
+            ":{} 323 {} :End of /LIST",
+            .{ hostname, CProtect(nickname, &ec) },
+        );
     }
 
     /// Process the JOIN command.
@@ -584,11 +649,16 @@ const Client = struct {
         const channel_name = try self._acceptParam(lexer, "<channel>");
 
         const nickname = self._user.getNickName();
+        const hostname = self._user._server.getHostName();
         var ec: bool = undefined;
 
         const channel = self._user._server.lookupChannel(channel_name) orelse {
             // Send ERR_NOSUCHCHANNEL.
-            try self._sendMessage(&ec, ":{} 403 {} {} :No such channel", .{ self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(channel_name, &ec) });
+            try self._sendMessage(
+                &ec,
+                ":{} 403 {} {} :No such channel",
+                .{ hostname, CProtect(nickname, &ec), CProtect(channel_name, &ec) },
+            );
             return;
         };
         // TODO Report any error to the client.
@@ -605,19 +675,29 @@ const Client = struct {
         const text = try self._acceptParam(lexer, "<text to be sent>");
 
         const nickname = self._user.getNickName();
+        const hostname = self._user._server.getHostName();
         var ec: bool = undefined;
 
         // TODO Handle messages to users too.
         const channel = self._user._server.lookupChannel(receiver_name) orelse {
             // Send ERR_NOSUCHNICK.
-            try self._sendMessage(&ec, ":{} 401 {} {} :No such nick/channel", .{ self._user._server.getHostName(), CProtect(nickname, &ec), CProtect(receiver_name, &ec) });
+            try self._sendMessage(
+                &ec,
+                ":{} 401 {} {} :No such nick/channel",
+                .{ hostname, CProtect(nickname, &ec), CProtect(receiver_name, &ec) },
+            );
             return;
         };
         channel.sendPrivMsg(&self._user, text);
     }
 
     /// Send a message to the client.
-    fn _sendMessage(self: *Client, escape_cond: ?*bool, comptime fmt: []const u8, args: anytype) !void {
+    fn _sendMessage(
+        self: *Client,
+        escape_cond: ?*bool,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) !void {
         if (escape_cond != null) {
             escape_cond.?.* = true;
         }
@@ -626,7 +706,10 @@ const Client = struct {
             escape_cond.?.* = false;
         }
         self._file_writer.print(fmt ++ "\r\n", args) catch |err| {
-            self._warn("Failed to write message into the client socket: {}.\n", .{@errorName(err)});
+            self._warn(
+                "Failed to write message into the client socket: {}.\n",
+                .{@errorName(err)},
+            );
             return err;
         };
     }
@@ -727,7 +810,11 @@ const Client = struct {
                     } else
                         self._input_state = Client.InputState.Invalid_CR;
                 } else {
-                    mem.copy(u8, self._input_buffer[0..], self._input_buffer[message_begin..self._input_received]);
+                    mem.copy(
+                        u8,
+                        self._input_buffer[0..],
+                        self._input_buffer[message_begin..self._input_received],
+                    );
                     self._input_received -= message_begin;
                 }
             },
@@ -742,7 +829,11 @@ const Client = struct {
         var ec: bool = undefined;
 
         // TODO Error handling.
-        self._sendMessage(&ec, ":{} PRIVMSG {} :{}", .{ CProtect(from, &ec), CProtect(to, &ec), CProtect(text, &ec) }) catch {};
+        self._sendMessage(
+            &ec,
+            ":{} PRIVMSG {} :{}",
+            .{ CProtect(from, &ec), CProtect(to, &ec), CProtect(text, &ec) },
+        ) catch {};
     }
 };
 
@@ -778,7 +869,10 @@ const LocalBot = struct {
         info("{}: Creating the local bot.\n", .{Protect(nickname)});
 
         const local_bot = allocator.create(LocalBot) catch |err| {
-            warn("{}: Failed to allocate a local bot instance: {}.\n", .{ Protect(nickname), @errorName(err) });
+            warn(
+                "{}: Failed to allocate a local bot instance: {}.\n",
+                .{ Protect(nickname), @errorName(err) },
+            );
             return err;
         };
         local_bot.* = LocalBot{
@@ -923,7 +1017,10 @@ const Channel = struct {
 
         // Make a copy of the name string.
         const name_copy = allocator.alloc(u8, name.len) catch |err| {
-            warn("{}: Failed to allocate a channel name string buffer: {}.\n", .{ Protect(name), @errorName(err) });
+            warn(
+                "{}: Failed to allocate a channel name string buffer: {}.\n",
+                .{ Protect(name), @errorName(err) },
+            );
             return err;
         };
         errdefer allocator.free(name_copy);
@@ -931,7 +1028,10 @@ const Channel = struct {
 
         // Allocate a channel instance.
         const channel = allocator.create(Channel) catch |err| {
-            warn("{}: Failed to allocate a channel instance: {}.\n", .{ Protect(name), @errorName(err) });
+            warn(
+                "{}: Failed to allocate a channel instance: {}.\n",
+                .{ Protect(name), @errorName(err) },
+            );
             return err;
         };
         channel.* = Channel{
@@ -973,7 +1073,10 @@ const Channel = struct {
     fn join(self: *Channel, user: *User) !void {
         // TODO Fix handling of duplicated join.
         _ = self._users.insert(user, {}) catch |err| {
-            self._warn("Failed to insert user {} in the channel user set: {}.\n", .{ Protect(user.getNickName()), @errorName(err) });
+            self._warn(
+                "Failed to insert user {} in the channel user set: {}.\n",
+                .{ Protect(user.getNickName()), @errorName(err) },
+            );
             return err;
         };
         // TODO Inform other clients about the join.
@@ -981,8 +1084,15 @@ const Channel = struct {
         const nickname = user.getNickName();
         var ec: bool = undefined;
 
-        try user.sendMessage(&ec, ":{} JOIN {}", .{ CProtect(nickname, &ec), CProtect(self._name, &ec) });
-        self._info("User {} joined the channel (now at {} users).\n", .{ Protect(nickname), self._users.count() });
+        try user.sendMessage(
+            &ec,
+            ":{} JOIN {}",
+            .{ CProtect(nickname, &ec), CProtect(self._name, &ec) },
+        );
+        self._info(
+            "User {} joined the channel (now at {} users).\n",
+            .{ Protect(nickname), self._users.count() },
+        );
 
         // TODO Sink in the client?
         //const hostname = self._user._server.getHostName();
@@ -997,7 +1107,10 @@ const Channel = struct {
     /// Send a message to all users in the channel.
     fn sendPrivMsg(self: *Channel, user: *const User, text: []const u8) void {
         const from_name = user.getNickName();
-        self._info("Received message (PRIVMSG) from {}: {}.\n", .{ Protect(from_name), Protect(text) });
+        self._info(
+            "Received message (PRIVMSG) from {}: {}.\n",
+            .{ Protect(from_name), Protect(text) },
+        );
 
         var channel_user_iter = self._users.iterator();
         while (channel_user_iter.next()) |channel_user_node| {
@@ -1041,7 +1154,12 @@ const Server = struct {
     /// Channels organized for fast lookup by name.
     _channels_by_name: ChannelNameSet,
 
-    fn create(address: []const u8, word_bank: []const []const u8, allocator: *Allocator, rng: *rand.Random) !*Server {
+    fn create(
+        address: []const u8,
+        word_bank: []const []const u8,
+        allocator: *Allocator,
+        rng: *rand.Random,
+    ) !*Server {
         // Parse the address.
         var host_end: usize = address.len;
         var port_start: usize = address.len;
@@ -1152,14 +1270,21 @@ const Server = struct {
 
     fn run(self: *Server) !void {
         // Create the server socket.
-        const listenfd = os.socket(os.AF_INET, os.SOCK_STREAM | os.SOCK_CLOEXEC, os.IPPROTO_TCP) catch |err| {
+        const listenfd = os.socket(
+            os.AF_INET,
+            os.SOCK_STREAM | os.SOCK_CLOEXEC,
+            os.IPPROTO_TCP,
+        ) catch |err| {
             warn("Failed to create a server socket: {}.\n", .{@errorName(err)});
             return err;
         };
         defer os.close(listenfd);
 
         os.bind(listenfd, &self._sockaddr.any, self._sockaddr.getOsSockLen()) catch |err| {
-            warn("Failed to bind to address {}:{}: {}.\n", .{ self._host, self._port, @errorName(err) });
+            warn(
+                "Failed to bind to address {}:{}: {}.\n",
+                .{ self._host, self._port, @errorName(err) },
+            );
             return err;
         };
 
@@ -1181,7 +1306,10 @@ const Server = struct {
             .data = os.epoll_data{ .ptr = 0 },
         };
         os.epoll_ctl(epfd, os.EPOLL_CTL_ADD, listenfd, &listenfd_event) catch |err| {
-            warn("Failed to add the server socket (file descriptor {}) to the epoll instance: {}.\n", .{ listenfd, @errorName(err) });
+            warn(
+                "Failed to add the server socket (fd {}) to the epoll instance: {}.\n",
+                .{ listenfd, @errorName(err) },
+            );
             return err;
         };
 
@@ -1191,7 +1319,10 @@ const Server = struct {
             .data = os.epoll_data{ .ptr = 1 },
         };
         os.epoll_ctl(epfd, os.EPOLL_CTL_ADD, os.STDIN_FILENO, &stdinfd_event) catch |err| {
-            warn("Failed to add the standard input to the epoll instance: {}.\n", .{@errorName(err)});
+            warn(
+                "Failed to add the standard input to the epoll instance: {}.\n",
+                .{@errorName(err)},
+            );
             return err;
         };
 
@@ -1239,7 +1370,12 @@ const Server = struct {
     fn _acceptClient(self: *Server, epfd: i32, listenfd: i32) void {
         var client_sockaddr: os.sockaddr align(4) = undefined;
         var client_socklen: os.socklen_t = @sizeOf(@TypeOf(client_sockaddr));
-        const clientfd = os.accept(listenfd, &client_sockaddr, &client_socklen, os.SOCK_CLOEXEC) catch |err| {
+        const clientfd = os.accept(
+            listenfd,
+            &client_sockaddr,
+            &client_socklen,
+            os.SOCK_CLOEXEC,
+        ) catch |err| {
             warn("Failed to accept a new client connection: {}.\n", .{@errorName(err)});
             return;
         };
@@ -1252,7 +1388,10 @@ const Server = struct {
         errdefer client.destroy();
 
         const client_iter = self._clients.insert(client, {}) catch |err| {
-            warn("{}: Failed to insert the client in the main client set: {}.\n", .{ client_addr, @errorName(err) });
+            warn(
+                "{}: Failed to insert the client in the main client set: {}.\n",
+                .{ client_addr, @errorName(err) },
+            );
             return;
         };
         errdefer self._clients.remove(client_iter);
@@ -1263,7 +1402,10 @@ const Server = struct {
             .data = os.epoll_data{ .ptr = @ptrToInt(client) },
         };
         os.epoll_ctl(epfd, os.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
-            warn("{}: Failed to add the client socket (file descriptor {}) to the epoll instance: {}.\n", .{ client_addr, clientfd, @errorName(err) });
+            warn(
+                "{}: Failed to add the client socket (fd {}) to the epoll instance: {}.\n",
+                .{ client_addr, clientfd, @errorName(err) },
+            );
             return;
         };
     }
@@ -1291,13 +1433,19 @@ const Server = struct {
         errdefer channel.destroy();
 
         const channel_iter = self._channels.insert(channel, {}) catch |err| {
-            warn("{}: Failed to insert the channel in the main channel set: {}.\n", .{ Protect(name), @errorName(err) });
+            warn(
+                "{}: Failed to insert the channel in the main channel set: {}.\n",
+                .{ Protect(name), @errorName(err) },
+            );
             return err;
         };
         errdefer self._channels.remove(channel_iter);
 
         _ = self._channels_by_name.insert(channel.getName(), channel) catch |err| {
-            warn("{}: Failed to insert the channel in the by-name channel set: {}.\n", .{ Protect(name), @errorName(err) });
+            warn(
+                "{}: Failed to insert the channel in the by-name channel set: {}.\n",
+                .{ Protect(name), @errorName(err) },
+            );
             return err;
         };
     }
@@ -1329,7 +1477,10 @@ const Server = struct {
         errdefer local_bot.destroy();
 
         const local_bot_iter = self._local_bots.insert(local_bot, {}) catch |err| {
-            warn("{}: Failed to insert the local bot in the main local bot set: {}.\n", .{ Protect(nickname), @errorName(err) });
+            warn(
+                "{}: Failed to insert the local bot in the main local bot set: {}.\n",
+                .{ Protect(nickname), @errorName(err) },
+            );
             return err;
         };
         errdefer self._local_bots.remove(local_bot_iter);
@@ -1361,14 +1512,22 @@ pub fn main() u8 {
     // Initialize a random number generator.
     var rand_buffer: [8]u8 = undefined;
     std.crypto.randomBytes(rand_buffer[0..]) catch |err| {
-        warn("Failed to obtain random bytes to initialize a random number generator: {}.\n", .{@errorName(err)});
+        warn(
+            "Failed to obtain random bytes to initialize a random number generator: {}.\n",
+            .{@errorName(err)},
+        );
         return 1;
     };
     const seed = mem.readIntLittle(u64, rand_buffer[0..8]);
     var prng = rand.DefaultPrng.init(seed);
 
     // Create the server.
-    const server = Server.create(config.address, &config.word_bank, &gp_allocator.allocator, &prng.random) catch return 1;
+    const server = Server.create(
+        config.address,
+        &config.word_bank,
+        &gp_allocator.allocator,
+        &prng.random,
+    ) catch return 1;
     defer server.destroy();
 
     // Create pre-defined channels.
