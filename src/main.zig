@@ -748,12 +748,17 @@ const Client = struct {
 
 const ClientSet = avl.Map(*Client, void, avl.getLessThanFn(*Client));
 
+/// Local bot which simulates a user.
 const LocalBot = struct {
     /// User definition.
     _user: User,
 
+    /// Bot configuration.
+    _bot_config: *const config.LocalBotConfig,
+
     /// Create a new local bot instance.
-    fn create(nickname: []const u8, server: *Server, allocator: *Allocator) !*LocalBot {
+    fn create(bot_config: *const config.LocalBotConfig, server: *Server, allocator: *Allocator) !*LocalBot {
+        const nickname = bot_config.nickname;
         info("{}: Creating the local bot.\n", .{Protect(nickname)});
 
         const local_bot = allocator.create(LocalBot) catch |err| {
@@ -762,6 +767,7 @@ const LocalBot = struct {
         };
         local_bot.* = LocalBot{
             ._user = try User.init(User.Type.LocalBot, nickname, server, allocator, Protect(nickname)),
+            ._bot_config = bot_config,
         };
         return local_bot;
     }
@@ -1174,19 +1180,16 @@ const Server = struct {
     }
 
     /// Create a new local bot with the given name.
-    fn createLocalBot(self: *Server, bot_config: config.LocalBotConfig) !void {
-        const nickname = bot_config.nickname;
-        const local_bot = try LocalBot.create(nickname, self, self._allocator);
+    fn createLocalBot(self: *Server, bot_config: *const config.LocalBotConfig) !void {
+        const local_bot = try LocalBot.create(bot_config, self, self._allocator);
         errdefer local_bot.destroy();
 
         const local_bot_iter = self._local_bots.insert(local_bot, {}) catch |err| {
-            warn("{}: Failed to insert the local bot in the main local bot set: {}.\n", .{ Protect(nickname), @errorName(err) });
+            warn("{}: Failed to insert the local bot in the main local bot set: {}.\n", .{ Protect(bot_config.nickname), @errorName(err) });
             return err;
         };
         errdefer self._local_bots.remove(local_bot_iter);
 
-        // Join pre-configurated channels.
-        try local_bot.joinChannels(bot_config.channels);
     }
 };
 
@@ -1215,7 +1218,7 @@ pub fn main() u8 {
         server.createChannel(channel) catch return 1;
     }
     for (config.local_bots) |local_bot| {
-        server.createLocalBot(local_bot) catch return 1;
+        server.createLocalBot(&local_bot) catch return 1;
     }
 
     // Run the server.
