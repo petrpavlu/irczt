@@ -904,8 +904,9 @@ const Channel = struct {
         self._info("Received message (PRIVMSG) from {}: {}.\n", .{ Protect(from_name), Protect(text) });
 
         var channel_user_iter = self._users.iterator();
-        while (channel_user_iter.next()) |channel_user| {
-            channel_user.key().sendPrivMsg(from_name, self._name, text);
+        while (channel_user_iter.next()) |channel_user_node| {
+            const channel_user = channel_user_node.key();
+            channel_user.sendPrivMsg(from_name, self._name, text);
         }
     }
 };
