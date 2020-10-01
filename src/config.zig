@@ -4,37 +4,8 @@
 /// Listen address for the server.
 pub const address = "127.0.0.1:6667";
 
-/// Pre-defined channels.
-pub const channels = [_][]const u8{
-    "#future",
-    "#movies",
-    "#music",
-    "#nature",
-    "#news",
-};
-
-/// Artificial user configuration.
-pub const LocalBotConfig = struct {
-    /// Nick name.
-    nickname: []const u8,
-
-    /// Words used by the bot.
-    words: []const []const u8,
-
-    /// Number of channels that the bot should try to be in.
-    channels_target: u8,
-
-    /// Probability that a channel gets left during each tick.
-    channels_leave_rate: f32,
-
-    /// Number of sent messages per each tick in every joined channel.
-    message_rate: f32,
-
-    /// Average message length.
-    message_length: u8,
-};
-
-const local_bot_words = [_][]const u8{
+/// Word bank for use by local bots.
+pub const word_bank = [_][]const u8{
     "lorem",     "ipsum",     "dolor",    "sit",       "amet",    "consectetur",  "adipiscing",
     "elit",      "sed",       "do",       "eiusmod",   "tempor",  "incididunt",   "ut",
     "labore",    "et",        "dolore",   "magna",     "aliqua",  "ut",           "enim",
@@ -47,406 +18,84 @@ const local_bot_words = [_][]const u8{
     "deserunt",  "mollit",    "anim",     "id",        "est",     "laborum",
 };
 
-/// Artificial local users.
-pub const local_bots = [_]LocalBotConfig{
-    LocalBotConfig{
-        .nickname = "Abigail",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0005,
-        .message_rate = 0.005,
-        .message_length = 17,
-    },
-    LocalBotConfig{
-        .nickname = "Albert",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0006,
-        .message_rate = 0.001,
-        .message_length = 13,
-    },
-    LocalBotConfig{
-        .nickname = "Alice",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.002,
-        .message_length = 15,
-    },
-    LocalBotConfig{
-        .nickname = "Anna",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0009,
-        .message_rate = 0.003,
-        .message_length = 12,
-    },
-    LocalBotConfig{
-        .nickname = "Arthur",
-        .words = &local_bot_words,
-        .channels_target = 4,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.005,
-        .message_length = 13,
-    },
-    LocalBotConfig{
-        .nickname = "Austin",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.002,
-        .message_length = 17,
-    },
-    LocalBotConfig{
-        .nickname = "Bella",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0006,
-        .message_rate = 0.003,
-        .message_length = 12,
-    },
-    LocalBotConfig{
-        .nickname = "Bobby",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0010,
-        .message_rate = 0.003,
-        .message_length = 14,
-    },
-    LocalBotConfig{
-        .nickname = "Charlie",
-        .words = &local_bot_words,
-        .channels_target = 4,
-        .channels_leave_rate = 0.0010,
-        .message_rate = 0.001,
-        .message_length = 19,
-    },
-    LocalBotConfig{
-        .nickname = "Charlotte",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0006,
-        .message_rate = 0.003,
-        .message_length = 12,
-    },
-    LocalBotConfig{
-        .nickname = "Clara",
-        .words = &local_bot_words,
-        .channels_target = 4,
-        .channels_leave_rate = 0.0005,
-        .message_rate = 0.002,
-        .message_length = 14,
-    },
-    LocalBotConfig{
-        .nickname = "Daisy",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0006,
-        .message_rate = 0.004,
-        .message_length = 13,
-    },
-    LocalBotConfig{
-        .nickname = "Daniel",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0005,
-        .message_rate = 0.004,
-        .message_length = 17,
-    },
-    LocalBotConfig{
-        .nickname = "David",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.003,
-        .message_length = 15,
-    },
-    LocalBotConfig{
-        .nickname = "Eliza",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0008,
-        .message_rate = 0.004,
-        .message_length = 17,
-    },
-    LocalBotConfig{
-        .nickname = "Ella",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0009,
-        .message_rate = 0.004,
-        .message_length = 20,
-    },
-    LocalBotConfig{
-        .nickname = "Elliot",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0006,
-        .message_rate = 0.001,
-        .message_length = 16,
-    },
-    LocalBotConfig{
-        .nickname = "Emma",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.005,
-        .message_length = 16,
-    },
-    LocalBotConfig{
-        .nickname = "Ethan",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0006,
-        .message_rate = 0.002,
-        .message_length = 14,
-    },
-    LocalBotConfig{
-        .nickname = "Finn",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0005,
-        .message_rate = 0.001,
-        .message_length = 11,
-    },
-    LocalBotConfig{
-        .nickname = "George",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0005,
-        .message_rate = 0.001,
-        .message_length = 20,
-    },
-    LocalBotConfig{
-        .nickname = "Hannah",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0010,
-        .message_rate = 0.004,
-        .message_length = 12,
-    },
-    LocalBotConfig{
-        .nickname = "Harry",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0006,
-        .message_rate = 0.001,
-        .message_length = 16,
-    },
-    LocalBotConfig{
-        .nickname = "Henry",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0006,
-        .message_rate = 0.004,
-        .message_length = 17,
-    },
-    LocalBotConfig{
-        .nickname = "Holly",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0008,
-        .message_rate = 0.005,
-        .message_length = 10,
-    },
-    LocalBotConfig{
-        .nickname = "Isabella",
-        .words = &local_bot_words,
-        .channels_target = 4,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.001,
-        .message_length = 13,
-    },
-    LocalBotConfig{
-        .nickname = "Jack",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.004,
-        .message_length = 16,
-    },
-    LocalBotConfig{
-        .nickname = "Jackson",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.002,
-        .message_length = 18,
-    },
-    LocalBotConfig{
-        .nickname = "Jacob",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0008,
-        .message_rate = 0.003,
-        .message_length = 19,
-    },
-    LocalBotConfig{
-        .nickname = "Jake",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.003,
-        .message_length = 18,
-    },
-    LocalBotConfig{
-        .nickname = "James",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0009,
-        .message_rate = 0.004,
-        .message_length = 16,
-    },
-    LocalBotConfig{
-        .nickname = "Jasmine",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0008,
-        .message_rate = 0.001,
-        .message_length = 11,
-    },
-    LocalBotConfig{
-        .nickname = "Jessica",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0008,
-        .message_rate = 0.005,
-        .message_length = 15,
-    },
-    LocalBotConfig{
-        .nickname = "John",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0010,
-        .message_rate = 0.001,
-        .message_length = 17,
-    },
-    LocalBotConfig{
-        .nickname = "Joseph",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0006,
-        .message_rate = 0.004,
-        .message_length = 11,
-    },
-    LocalBotConfig{
-        .nickname = "Lily",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0009,
-        .message_rate = 0.003,
-        .message_length = 14,
-    },
-    LocalBotConfig{
-        .nickname = "Lucas",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0008,
-        .message_rate = 0.004,
-        .message_length = 17,
-    },
-    LocalBotConfig{
-        .nickname = "Max",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.005,
-        .message_length = 16,
-    },
-    LocalBotConfig{
-        .nickname = "Nathan",
-        .words = &local_bot_words,
-        .channels_target = 4,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.001,
-        .message_length = 13,
-    },
-    LocalBotConfig{
-        .nickname = "Olivia",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0008,
-        .message_rate = 0.003,
-        .message_length = 15,
-    },
-    LocalBotConfig{
-        .nickname = "Phoebe",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0008,
-        .message_rate = 0.001,
-        .message_length = 19,
-    },
-    LocalBotConfig{
-        .nickname = "Sarah",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.004,
-        .message_length = 17,
-    },
-    LocalBotConfig{
-        .nickname = "Scarlett",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0009,
-        .message_rate = 0.003,
-        .message_length = 17,
-    },
-    LocalBotConfig{
-        .nickname = "Sophie",
-        .words = &local_bot_words,
-        .channels_target = 2,
-        .channels_leave_rate = 0.0007,
-        .message_rate = 0.004,
-        .message_length = 15,
-    },
-    LocalBotConfig{
-        .nickname = "Summer",
-        .words = &local_bot_words,
-        .channels_target = 4,
-        .channels_leave_rate = 0.0005,
-        .message_rate = 0.002,
-        .message_length = 18,
-    },
-    LocalBotConfig{
-        .nickname = "Tyler",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0009,
-        .message_rate = 0.004,
-        .message_length = 15,
-    },
-    LocalBotConfig{
-        .nickname = "Violet",
-        .words = &local_bot_words,
-        .channels_target = 5,
-        .channels_leave_rate = 0.0008,
-        .message_rate = 0.002,
-        .message_length = 11,
-    },
-    LocalBotConfig{
-        .nickname = "William",
-        .words = &local_bot_words,
-        .channels_target = 4,
-        .channels_leave_rate = 0.0009,
-        .message_rate = 0.005,
-        .message_length = 14,
-    },
-    LocalBotConfig{
-        .nickname = "Zara",
-        .words = &local_bot_words,
-        .channels_target = 3,
-        .channels_leave_rate = 0.0006,
-        .message_rate = 0.002,
-        .message_length = 16,
-    },
-    LocalBotConfig{
-        .nickname = "Zoe",
-        .words = &local_bot_words,
-        .channels_target = 4,
-        .channels_leave_rate = 0.0005,
-        .message_rate = 0.003,
-        .message_length = 10,
-    },
+/// Pre-defined channels.
+pub const channels = [_][]const u8{
+    "#future",
+    "#movies",
+    "#music",
+    "#nature",
+    "#news",
 };
+
+/// Artificial local users.
+pub const local_bots = [_][]const u8{
+    "Abigail",
+    "Albert",
+    "Alice",
+    "Anna",
+    "Arthur",
+    "Austin",
+    "Bella",
+    "Bobby",
+    "Charlie",
+    "Charlotte",
+    "Clara",
+    "Daisy",
+    "Daniel",
+    "David",
+    "Eliza",
+    "Ella",
+    "Elliot",
+    "Emma",
+    "Ethan",
+    "Finn",
+    "George",
+    "Hannah",
+    "Harry",
+    "Henry",
+    "Holly",
+    "Isabella",
+    "Jack",
+    "Jackson",
+    "Jacob",
+    "Jake",
+    "James",
+    "Jasmine",
+    "Jessica",
+    "John",
+    "Joseph",
+    "Lily",
+    "Lucas",
+    "Max",
+    "Nathan",
+    "Olivia",
+    "Phoebe",
+    "Sarah",
+    "Scarlett",
+    "Sophie",
+    "Summer",
+    "Tyler",
+    "Violet",
+    "William",
+    "Zara",
+    "Zoe",
+};
+
+pub fn Range(comptime T: type) type {
+    return struct {
+        min: T,
+        max: T,
+    };
+}
+
+/// Number of channels that a bot should try to be in.
+pub const bot_channels_target = Range(u8){ .min = 2, .max = 5 };
+
+/// Probability that a bot leaves a channel at each tick.
+pub const bot_channels_leave_rate = Range(f32){ .min = 0.0005, .max = 0.0010 };
+
+/// Number of sent messages per each tick in every joined channel.
+pub const bot_message_rate = Range(f32){ .min = 0.001, .max = 0.005 };
+
+/// Average message length.
+pub const bot_message_length = Range(u8){ .min = 10, .max = 20 };

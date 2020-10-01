@@ -753,12 +753,28 @@ const LocalBot = struct {
     /// User definition.
     _user: User,
 
-    /// Bot configuration.
-    _bot_config: *const config.LocalBotConfig,
+    /// Number of channels that the bot should try to be in.
+    _channels_target: u8,
+
+    /// Probability that the bot leaves a channel at each tick.
+    _channels_leave_rate: f32,
+
+    /// Number of sent messages per each tick in every joined channel.
+    _message_rate: f32,
+
+    /// Average message length.
+    _message_length: u8,
 
     /// Create a new local bot instance.
-    fn create(bot_config: *const config.LocalBotConfig, server: *Server, allocator: *Allocator) !*LocalBot {
-        const nickname = bot_config.nickname;
+    fn create(
+        nickname: []const u8,
+        channels_target: u8,
+        channels_leave_rate: f32,
+        message_rate: f32,
+        message_length: u8,
+        server: *Server,
+        allocator: *Allocator,
+    ) !*LocalBot {
         info("{}: Creating the local bot.\n", .{Protect(nickname)});
 
         const local_bot = allocator.create(LocalBot) catch |err| {
@@ -766,8 +782,17 @@ const LocalBot = struct {
             return err;
         };
         local_bot.* = LocalBot{
-            ._user = try User.init(User.Type.LocalBot, nickname, server, allocator, Protect(nickname)),
-            ._bot_config = bot_config,
+            ._user = try User.init(
+                User.Type.LocalBot,
+                nickname,
+                server,
+                allocator,
+                Protect(nickname),
+            ),
+            ._channels_target = channels_target,
+            ._channels_leave_rate = channels_leave_rate,
+            ._message_rate = message_rate,
+            ._message_length = message_length,
         };
         return local_bot;
     }
@@ -803,11 +828,11 @@ const LocalBot = struct {
     /// Join the bot's desired number of channels.
     fn _tick_joinChannels(self: *LocalBot) void {
         const joined = self._user._channels.count();
-        if (self._bot_config.channels_target <= joined) {
+        if (self._channels_target <= joined) {
             return;
         }
 
-        var needed = self._bot_config.channels_target - joined;
+        var needed = self._channels_target - joined;
         const server_channels = self._user._server.getChannels();
         var left = server_channels.count() - joined;
         const rng = self._user._server.getRNG();
@@ -839,21 +864,22 @@ const LocalBot = struct {
 
     fn _tick_sendMessages(self: *LocalBot) void {
         const rng = self._user._server.getRNG();
+        const word_bank = self._user._server.getWordBank();
 
         var channel_iter = self._user._channels.iterator();
         while (channel_iter.next()) |channel_node| {
             const channel = channel_node.key();
-            if (rng.float(f32) >= self._bot_config.message_rate) {
+            if (rng.float(f32) >= self._message_rate) {
                 continue;
             }
 
             // Generate a random message.
-            var needed = rng.intRangeAtMost(u8, 1, 2 * self._bot_config.message_length - 1);
+            var needed = rng.intRangeAtMost(u8, 1, 2 * self._message_length - 1);
             var message_buffer: [1024]u8 = undefined;
             var at: usize = 0;
             while (needed > 0) : (needed -= 1) {
-                const word_index = rng.uintLessThan(usize, self._bot_config.words.len);
-                const word = self._bot_config.words[word_index];
+                const word_index = rng.uintLessThan(usize, word_bank.len);
+                const word = word_bank[word_index];
 
                 if (message_buffer.len - at < 1 + word.len) {
                     break;
@@ -991,6 +1017,9 @@ const Server = struct {
     /// Random number generator.
     _rng: *rand.Random,
 
+    /// Word bank for use by local bots.
+    _word_bank: []const []const u8,
+
     /// Socket address.
     _sockaddr: net.Address,
 
@@ -1012,7 +1041,7 @@ const Server = struct {
     /// Channels organized for fast lookup by name.
     _channels_by_name: ChannelNameSet,
 
-    fn create(address: []const u8, allocator: *Allocator, rng: *rand.Random) !*Server {
+    fn create(address: []const u8, word_bank: []const []const u8, allocator: *Allocator, rng: *rand.Random) !*Server {
         // Parse the address.
         var host_end: usize = address.len;
         var port_start: usize = address.len;
@@ -1060,6 +1089,7 @@ const Server = struct {
         server.* = Server{
             ._allocator = allocator,
             ._rng = rng,
+            ._word_bank = word_bank,
             ._sockaddr = parsed_address,
             ._host = host_copy,
             ._port = port_copy,
@@ -1100,6 +1130,16 @@ const Server = struct {
         self._allocator.free(self._host);
         self._allocator.free(self._port);
         self._allocator.destroy(self);
+    }
+
+    /// Obtain the random number generator.
+    fn getRNG(self: *Server) *rand.Random {
+        return self._rng;
+    }
+
+    /// Obtain the word bank.
+    fn getWordBank(self: *const Server) []const []const u8 {
+        return self._word_bank;
     }
 
     fn getHostName(self: *const Server) []const u8 {
@@ -1269,12 +1309,27 @@ const Server = struct {
     }
 
     /// Create a new local bot with the given name.
-    fn createLocalBot(self: *Server, bot_config: *const config.LocalBotConfig) !void {
-        const local_bot = try LocalBot.create(bot_config, self, self._allocator);
+    fn createLocalBot(
+        self: *Server,
+        nickname: []const u8,
+        channels_target: u8,
+        channels_leave_rate: f32,
+        message_rate: f32,
+        message_length: u8,
+    ) !void {
+        const local_bot = try LocalBot.create(
+            nickname,
+            channels_target,
+            channels_leave_rate,
+            message_rate,
+            message_length,
+            self,
+            self._allocator,
+        );
         errdefer local_bot.destroy();
 
         const local_bot_iter = self._local_bots.insert(local_bot, {}) catch |err| {
-            warn("{}: Failed to insert the local bot in the main local bot set: {}.\n", .{ Protect(bot_config.nickname), @errorName(err) });
+            warn("{}: Failed to insert the local bot in the main local bot set: {}.\n", .{ Protect(nickname), @errorName(err) });
             return err;
         };
         errdefer self._local_bots.remove(local_bot_iter);
@@ -1282,12 +1337,19 @@ const Server = struct {
         // Run the initial tick.
         local_bot.tick();
     }
-
-    /// Obtain a random number generator.
-    fn getRNG(self: *Server) *rand.Random {
-        return self._rng;
-    }
 };
+
+fn selectFromConfigRange(rng: *rand.Random, comptime T: type, range: *const config.Range(T)) T {
+    switch (T) {
+        u8 => {
+            return rng.intRangeAtMost(u8, range.min, range.max);
+        },
+        f32 => {
+            return range.min + (range.max - range.min) * rng.float(f32);
+        },
+        else => @compileError("Unhandled select type"),
+    }
+}
 
 pub fn main() u8 {
     // Get an allocator.
@@ -1306,15 +1368,24 @@ pub fn main() u8 {
     var prng = rand.DefaultPrng.init(seed);
 
     // Create the server.
-    const server = Server.create(config.address, &gp_allocator.allocator, &prng.random) catch return 1;
+    const server = Server.create(config.address, &config.word_bank, &gp_allocator.allocator, &prng.random) catch return 1;
     defer server.destroy();
 
-    // Create pre-defined channels and automatic users.
+    // Create pre-defined channels.
     for (config.channels) |channel| {
         server.createChannel(channel) catch return 1;
     }
+
+    // Create pre-defined artificial users.
+    const rng = &prng.random;
     for (config.local_bots) |local_bot| {
-        server.createLocalBot(&local_bot) catch return 1;
+        server.createLocalBot(
+            local_bot,
+            selectFromConfigRange(rng, u8, &config.bot_channels_target),
+            selectFromConfigRange(rng, f32, &config.bot_channels_leave_rate),
+            selectFromConfigRange(rng, f32, &config.bot_message_rate),
+            selectFromConfigRange(rng, u8, &config.bot_message_length),
+        ) catch return 1;
     }
 
     // Run the server.
