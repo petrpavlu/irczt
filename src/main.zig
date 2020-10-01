@@ -318,7 +318,7 @@ const User = struct {
             },
             .LocalBot => {
                 // TODO Implement.
-                unreachable;
+                //unreachable;
             },
         }
     }
@@ -800,12 +800,82 @@ const LocalBot = struct {
         warn("{}: " ++ fmt, .{nickname} ++ args);
     }
 
-    // TODO Caller must make sure that channels exist.
-    fn joinChannels(self: *LocalBot, channels: []const []const u8) !void {
-        for (channels) |channel_name| {
-            const channel = self._user._server.lookupChannel(channel_name) orelse unreachable;
-            try self._user._joinChannel(channel);
+    /// Join the bot's desired number of channels.
+    fn _tick_joinChannels(self: *LocalBot) void {
+        const joined = self._user._channels.count();
+        if (self._bot_config.channels_target <= joined) {
+            return;
         }
+
+        var needed = self._bot_config.channels_target - joined;
+        const server_channels = self._user._server.getChannels();
+        var left = server_channels.count() - joined;
+        const rng = self._user._server.getRNG();
+
+        var server_channel_iter = server_channels.iterator();
+        while (server_channel_iter.next()) |server_channel_node| {
+            const server_channel = server_channel_node.key();
+
+            // Skip this channel if the bot is already in it.
+            const user_channel_iter = self._user._channels.find(server_channel);
+            if (user_channel_iter.valid()) {
+                continue;
+            }
+
+            const join_probability: f32 = @intToFloat(f32, needed) / @intToFloat(f32, left);
+            if (rng.float(f32) < join_probability) {
+                self._user._joinChannel(server_channel) catch {};
+                needed -= 1;
+                if (needed == 0)
+                    break;
+            }
+            left -= 1;
+        }
+    }
+
+    fn _tick_leaveChannels(self: *LocalBot) void {
+        // TODO Handle channels_leave_rate.
+    }
+
+    fn _tick_sendMessages(self: *LocalBot) void {
+        const rng = self._user._server.getRNG();
+
+        var channel_iter = self._user._channels.iterator();
+        while (channel_iter.next()) |channel_node| {
+            const channel = channel_node.key();
+            if (rng.float(f32) >= self._bot_config.message_rate) {
+                continue;
+            }
+
+            // Generate a random message.
+            var needed = rng.intRangeAtMost(u8, 1, 2 * self._bot_config.message_length - 1);
+            var message_buffer: [1024]u8 = undefined;
+            var at: usize = 0;
+            while (needed > 0) : (needed -= 1) {
+                const word_index = rng.uintLessThan(usize, self._bot_config.words.len);
+                const word = self._bot_config.words[word_index];
+
+                if (message_buffer.len - at < 1 + word.len) {
+                    break;
+                }
+
+                if (at != 0) {
+                    message_buffer[at] = ' ';
+                    at += 1;
+                }
+                mem.copy(u8, message_buffer[at..], word);
+                at += word.len;
+            }
+
+            // Send the message to the channel.
+            channel.sendPrivMsg(&self._user, message_buffer[0..at]);
+        }
+    }
+
+    fn tick(self: *LocalBot) void {
+        self._tick_joinChannels();
+        self._tick_leaveChannels();
+        self._tick_sendMessages();
     }
 };
 
@@ -1087,9 +1157,27 @@ const Server = struct {
 
         // Listen for events.
         info("Listening on {}:{}.\n", .{ self._host, self._port });
+
+        var next_bot_tick = time.milliTimestamp();
         while (true) {
+            var timeout = next_bot_tick - time.milliTimestamp();
+
+            // Run the local bot ticks if it is time.
+            if (timeout <= 0) {
+                var local_bot_iter = self._local_bots.iterator();
+                while (local_bot_iter.next()) |local_bot_node| {
+                    const local_bot = local_bot_node.key();
+                    local_bot.tick();
+                }
+
+                timeout = 1000;
+                next_bot_tick = time.milliTimestamp() + timeout;
+            }
+
+            // Wait for a next event.
             var events: [1]os.epoll_event = undefined;
-            const ep = os.epoll_wait(epfd, events[0..], -1);
+            assert(timeout <= 1000);
+            const ep = os.epoll_wait(epfd, events[0..], @intCast(i32, timeout));
             if (ep == 0) {
                 continue;
             }
@@ -1191,6 +1279,8 @@ const Server = struct {
         };
         errdefer self._local_bots.remove(local_bot_iter);
 
+        // Run the initial tick.
+        local_bot.tick();
     }
 
     /// Obtain a random number generator.
