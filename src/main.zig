@@ -918,7 +918,7 @@ const Server = struct {
     _allocator: *Allocator,
 
     /// Random number generator.
-    _random: *rand.Random,
+    _rng: *rand.Random,
 
     /// Socket address.
     _sockaddr: net.Address,
@@ -941,7 +941,7 @@ const Server = struct {
     /// Channels organized for fast lookup by name.
     _channels_by_name: ChannelNameSet,
 
-    fn create(address: []const u8, allocator: *Allocator, random: *rand.Random) !*Server {
+    fn create(address: []const u8, allocator: *Allocator, rng: *rand.Random) !*Server {
         // Parse the address.
         var host_end: usize = address.len;
         var port_start: usize = address.len;
@@ -988,7 +988,7 @@ const Server = struct {
         };
         server.* = Server{
             ._allocator = allocator,
-            ._random = random,
+            ._rng = rng,
             ._sockaddr = parsed_address,
             ._host = host_copy,
             ._port = port_copy,
