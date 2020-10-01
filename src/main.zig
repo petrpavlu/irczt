@@ -327,10 +327,10 @@ const User = struct {
         escape_cond: ?*bool,
         comptime fmt: []const u8,
         args: anytype,
-    ) !void {
+    ) void {
         switch (self._type) {
             .Client => {
-                return Client.fromUser(self)._sendMessage(escape_cond, fmt, args);
+                Client.fromUser(self)._sendMessage(escape_cond, fmt, args);
             },
             .LocalBot => {
                 // Ignore because local bots do not send messages anywhere.
@@ -560,30 +560,30 @@ const Client = struct {
 
         // Send RPL_LUSERCLIENT.
         // TODO Fix user count.
-        try self._sendMessage(
+        self._sendMessage(
             &ec,
             ":{} 251 {} :There are {} users and 0 invisible on 1 servers",
             .{ hostname, CProtect(nickname, &ec), 1 },
         );
 
         // Send motd.
-        try self._sendMessage(
+        self._sendMessage(
             &ec,
             ":{} 375 {} :- {} Message of the Day -",
             .{ hostname, CProtect(nickname, &ec), hostname },
         );
-        try self._sendMessage(
+        self._sendMessage(
             &ec,
             ":{} 372 {} :- Welcome to the {} IRC network!",
             .{ hostname, CProtect(nickname, &ec), hostname },
         );
-        try self._sendMessage(
+        self._sendMessage(
             &ec,
             ":{} 376 {} :End of /MOTD command.",
             .{ hostname, CProtect(nickname, &ec) },
         );
 
-        try self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", .{CProtect(nickname, &ec)});
+        self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", .{CProtect(nickname, &ec)});
     }
 
     /// Check whether the user has completed the initial registration and is fully joined. If not
@@ -592,7 +592,7 @@ const Client = struct {
         if (self._registration_state == .Complete) {
             return;
         }
-        try self._sendMessage(
+        self._sendMessage(
             null,
             ":{} 451 * :You have not registered",
             .{self._user._server.getHostName()},
@@ -612,7 +612,7 @@ const Client = struct {
         var ec: bool = undefined;
 
         // Send RPL_LISTSTART.
-        try self._sendMessage(
+        self._sendMessage(
             &ec,
             ":{} 321 {} Channel :Users  Name",
             .{ hostname, CProtect(nickname, &ec) },
@@ -625,7 +625,7 @@ const Client = struct {
             const channel = channel_node.key();
             const name = channel.getName();
             const user_count = channel.getUserCount();
-            try self._sendMessage(
+            self._sendMessage(
                 &ec,
                 ":{} 322 {} {} {} :",
                 .{ hostname, CProtect(nickname, &ec), CProtect(name, &ec), user_count },
@@ -633,7 +633,7 @@ const Client = struct {
         }
 
         // Send RPL_LISTEND.
-        try self._sendMessage(
+        self._sendMessage(
             &ec,
             ":{} 323 {} :End of /LIST",
             .{ hostname, CProtect(nickname, &ec) },
@@ -654,7 +654,7 @@ const Client = struct {
 
         const channel = self._user._server.lookupChannel(channel_name) orelse {
             // Send ERR_NOSUCHCHANNEL.
-            try self._sendMessage(
+            self._sendMessage(
                 &ec,
                 ":{} 403 {} {} :No such channel",
                 .{ hostname, CProtect(nickname, &ec), CProtect(channel_name, &ec) },
@@ -681,7 +681,7 @@ const Client = struct {
         // TODO Handle messages to users too.
         const channel = self._user._server.lookupChannel(receiver_name) orelse {
             // Send ERR_NOSUCHNICK.
-            try self._sendMessage(
+            self._sendMessage(
                 &ec,
                 ":{} 401 {} {} :No such nick/channel",
                 .{ hostname, CProtect(nickname, &ec), CProtect(receiver_name, &ec) },
@@ -697,7 +697,7 @@ const Client = struct {
         escape_cond: ?*bool,
         comptime fmt: []const u8,
         args: anytype,
-    ) !void {
+    ) void {
         if (escape_cond != null) {
             escape_cond.?.* = true;
         }
@@ -707,10 +707,9 @@ const Client = struct {
         }
         self._file_writer.print(fmt ++ "\r\n", args) catch |err| {
             self._warn(
-                "Failed to write message into the client socket: {}.\n",
+                "Failed to write the message into the client socket: {}.\n",
                 .{@errorName(err)},
             );
-            return err;
         };
     }
 
@@ -828,12 +827,11 @@ const Client = struct {
     fn _sendPrivMsg(self: *Client, from: []const u8, to: []const u8, text: []const u8) void {
         var ec: bool = undefined;
 
-        // TODO Error handling.
         self._sendMessage(
             &ec,
             ":{} PRIVMSG {} :{}",
             .{ CProtect(from, &ec), CProtect(to, &ec), CProtect(text, &ec) },
-        ) catch {};
+        );
     }
 };
 
@@ -1084,7 +1082,7 @@ const Channel = struct {
         const nickname = user.getNickName();
         var ec: bool = undefined;
 
-        try user.sendMessage(
+        user.sendMessage(
             &ec,
             ":{} JOIN {}",
             .{ CProtect(nickname, &ec), CProtect(self._name, &ec) },
@@ -1354,6 +1352,7 @@ const Server = struct {
             }
 
             // Handle the event.
+            // TODO Handle error events.
             switch (events[0].data.ptr) {
                 0 => self._acceptClient(epfd, listenfd),
                 1 => {
