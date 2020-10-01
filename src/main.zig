@@ -1192,6 +1192,11 @@ const Server = struct {
         errdefer self._local_bots.remove(local_bot_iter);
 
     }
+
+    /// Obtain a random number generator.
+    fn getRNG(self: *Server) *rand.Random {
+        return self._rng;
+    }
 };
 
 pub fn main() u8 {
