@@ -729,6 +729,23 @@ const Client = struct {
         try self._user._joinChannel(channel);
     }
 
+    /// Process the WHO command.
+    /// Parameters: [<name> [<o>]]
+    fn _processCommand_WHO(self: *Client, lexer: *Lexer) !void {
+        try self._checkRegistered();
+
+        // TODO Parse all parameters.
+        const name = try self._acceptParam(lexer, "<name>");
+
+        const nickname = self._user.getNickName();
+        const hostname = self._user._server.getHostName();
+        var ec: bool = undefined;
+
+        // TODO Report any error to the client.
+        const channel = self._user._server.lookupChannel(name) orelse return;
+        channel.who(&self._user);
+    }
+
     /// Process the PRIVMSG command.
     /// Parameters: <receiver>{,<receiver>} <text to be sent>
     fn _processCommand_PRIVMSG(self: *Client, lexer: *Lexer) !void {
@@ -800,6 +817,8 @@ const Client = struct {
             res = self._processCommand_LIST(&lexer);
         } else if (mem.eql(u8, command, "JOIN")) {
             res = self._processCommand_JOIN(&lexer);
+        } else if (mem.eql(u8, command, "WHO")) {
+            res = self._processCommand_WHO(&lexer);
         } else if (mem.eql(u8, command, "PRIVMSG")) {
             res = self._processCommand_PRIVMSG(&lexer);
         } else
@@ -1213,6 +1232,38 @@ const Channel = struct {
         user.sendMessage(
             &ec,
             ":{} 366 {} {} :End of /NAMES list",
+            .{ hostname, CProtect(nickname, &ec), CProtect(self._name, &ec) },
+        );
+    }
+
+    /// Query "who" information about all users in the channel.
+    fn who(self: *Channel, user: *User) void {
+        const nickname = user.getNickName();
+        const hostname = self._server.getHostName();
+        var ec: bool = undefined;
+
+        // Send RPL_WHOREPLY.
+        var channel_user_iter = self._users.iterator();
+        while (channel_user_iter.next()) |channel_user_node| {
+            const channel_user = channel_user_node.key();
+            user.sendMessage(
+                &ec,
+                ":{} 352 {} {} {} hidden {} {} H :0 {}",
+                .{
+                    hostname,
+                    CProtect(nickname, &ec),
+                    CProtect(self._name, &ec),
+                    CProtect(channel_user.getUserName(), &ec),
+                    self._server.getHostName(),
+                    CProtect(channel_user.getNickName(), &ec),
+                    CProtect(channel_user.getRealName(), &ec),
+                },
+            );
+        }
+        // Send RPL_ENDOFWHO.
+        user.sendMessage(
+            &ec,
+            ":{} 315 {} {} :End of /WHO list",
             .{ hostname, CProtect(nickname, &ec), CProtect(self._name, &ec) },
         );
     }
