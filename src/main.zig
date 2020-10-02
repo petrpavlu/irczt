@@ -852,8 +852,9 @@ const Client = struct {
             const char = self._input_buffer[pos];
             switch (self._input_state) {
                 Client.InputState.Normal => {
-                    if (char == '\r')
+                    if (char == '\r') {
                         self._input_state = Client.InputState.Normal_CR;
+                    }
                     // TODO Check for invalid chars.
                 },
                 Client.InputState.Normal_CR => {
@@ -867,15 +868,17 @@ const Client = struct {
                     }
                 },
                 Client.InputState.Invalid => {
-                    if (char == '\r')
+                    if (char == '\r') {
                         self._input_state = Client.InputState.Invalid_CR;
+                    }
                 },
                 Client.InputState.Invalid_CR => {
                     if (char == '\n') {
                         self._input_state = Client.InputState.Normal;
                         message_begin = pos + 1;
-                    } else
+                    } else {
                         self._input_state = Client.InputState.Invalid;
+                    }
                 },
             }
         }
@@ -887,10 +890,11 @@ const Client = struct {
                     self._input_received = 0;
                 } else if (message_begin == 0) {
                     // TODO Message overflow.
-                    if (self._input_state == Client.InputState.Normal) { // TODO Remove braces.
+                    if (self._input_state == Client.InputState.Normal) {
                         self._input_state = Client.InputState.Invalid;
-                    } else
+                    } else {
                         self._input_state = Client.InputState.Invalid_CR;
+                    }
                 } else {
                     mem.copy(
                         u8,
@@ -1028,8 +1032,9 @@ const LocalBot = struct {
             if (rng.float(f32) < join_probability) {
                 self._user._joinChannel(server_channel) catch {};
                 needed -= 1;
-                if (needed == 0)
+                if (needed == 0) {
                     break;
+                }
             }
             left -= 1;
         }
