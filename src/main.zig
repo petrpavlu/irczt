@@ -1006,6 +1006,9 @@ const Channel = struct {
     /// Channel name (owned).
     _name: []const u8,
 
+    /// Channel topic (owned).
+    _topic: ?[]const u8,
+
     /// Users in the channel.
     _users: UserSet,
 
@@ -1036,6 +1039,7 @@ const Channel = struct {
             ._server = server,
             ._allocator = allocator,
             ._name = name_copy,
+            ._topic = null,
             ._users = UserSet.init(allocator),
         };
         return channel;
@@ -1045,6 +1049,9 @@ const Channel = struct {
         self._info("Destroying the channel.\n", .{});
 
         self._users.deinit();
+        if (self._topic != null) {
+            self._allocator.free(self._topic.?);
+        }
         self._allocator.free(self._name);
         self._allocator.destroy(self);
     }
@@ -1099,13 +1106,27 @@ const Channel = struct {
             );
         }
 
-        // Send RPL_TOPIC.
-        // TODO Report a correct topic.
-        user.sendMessage(
-            &ec,
-            ":{} 332 {} {} :Topic",
-            .{ hostname, CProtect(nickname, &ec), CProtect(self._name, &ec) },
-        );
+        // Send information about the channel topic.
+        if (self._topic != null) {
+            // Send RPL_TOPIC.
+            user.sendMessage(
+                &ec,
+                ":{} 332 {} {} :{}",
+                .{
+                    hostname,
+                    CProtect(nickname, &ec),
+                    CProtect(self._name, &ec),
+                    CProtect(self._topic.?, &ec),
+                },
+            );
+        } else {
+            // Send RPL_NOTOPIC.
+            user.sendMessage(
+                &ec,
+                ":{} 332 {} {} :No topic is set",
+                .{ hostname, CProtect(nickname, &ec), CProtect(self._name, &ec) },
+            );
+        }
 
         // Send RPL_NAMREPLY.
         channel_user_iter = self._users.iterator();
