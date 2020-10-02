@@ -231,7 +231,14 @@ const User = struct {
     _server: *Server,
     _allocator: *Allocator,
 
+    /// Unique nick name (owned).
     _nickname: []u8,
+
+    /// User name (owned).
+    _username: []u8,
+
+    /// Real name (owned).
+    _realname: []u8,
 
     /// Joined channels.
     _channels: ChannelSet,
@@ -239,6 +246,8 @@ const User = struct {
     fn init(
         type_: Type,
         nickname: []const u8,
+        username: []const u8,
+        realname: []const u8,
         server: *Server,
         allocator: *Allocator,
         init_prefix: anytype,
@@ -254,18 +263,44 @@ const User = struct {
         errdefer allocator.free(nickname_copy);
         mem.copy(u8, nickname_copy, nickname);
 
+        // Make a copy of the username string.
+        const username_copy = allocator.alloc(u8, username.len) catch |err| {
+            warn(
+                "{}: Failed to allocate a username string buffer: {}.\n",
+                .{ init_prefix, @errorName(err) },
+            );
+            return err;
+        };
+        errdefer allocator.free(username_copy);
+        mem.copy(u8, username_copy, username);
+
+        // Make a copy of the realname string.
+        const realname_copy = allocator.alloc(u8, realname.len) catch |err| {
+            warn(
+                "{}: Failed to allocate a realname string buffer: {}.\n",
+                .{ init_prefix, @errorName(err) },
+            );
+            return err;
+        };
+        errdefer allocator.free(realname_copy);
+        mem.copy(u8, realname_copy, realname);
+
         return User{
             ._type = type_,
             ._server = server,
             ._allocator = allocator,
             ._nickname = nickname_copy,
+            ._username = username_copy,
+            ._realname = realname_copy,
             ._channels = ChannelSet.init(allocator),
         };
     }
 
     fn deinit(self: *User) void {
-        self._channels.deinit();
         self._allocator.free(self._nickname);
+        self._allocator.free(self._username);
+        self._allocator.free(self._realname);
+        self._channels.deinit();
     }
 
     fn getNickName(self: *const User) []const u8 {
@@ -284,6 +319,39 @@ const User = struct {
         // Set the new nickname.
         self._allocator.free(self._nickname);
         self._nickname = nickname_copy;
+    }
+
+    fn getUserName(self: *const User) []const u8 {
+        return self._username;
+    }
+
+    fn getRealName(self: *const User) []const u8 {
+        return self._realname;
+    }
+
+    fn setUserAndRealName(self: *User, username: []const u8, realname: []const u8) !void {
+        // Make a copy of the username string.
+        const username_copy = self._allocator.alloc(u8, username.len) catch |err| {
+            self._warn("Failed to allocate a username string buffer: {}.\n", .{@errorName(err)});
+            return err;
+        };
+        errdefer self._allocator.free(username_copy);
+        mem.copy(u8, username_copy, username);
+
+        // Make a copy of the realname string.
+        const realname_copy = self._allocator.alloc(u8, realname.len) catch |err| {
+            self._warn("Failed to allocate a realname string buffer: {}.\n", .{@errorName(err)});
+            return err;
+        };
+        errdefer self._allocator.free(realname_copy);
+        mem.copy(u8, realname_copy, realname);
+
+        // Set the new username and realname.
+        self._allocator.free(self._username);
+        self._username = username_copy;
+
+        self._allocator.free(self._realname);
+        self._realname = realname_copy;
     }
 
     fn _info(self: *const User, comptime fmt: []const u8, args: anytype) void {
@@ -385,9 +453,6 @@ const Client = struct {
     /// is fully joined.
     _registration_state: RegistrationState,
 
-    _realname: [512]u8,
-    _realname_end: usize,
-
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
     /// constructing the client fails, the file descriptor gets closed.
     fn create(fd: i32, addr: net.Address, server: *Server, allocator: *Allocator) !*Client {
@@ -401,7 +466,15 @@ const Client = struct {
         };
         const file = fs.File{ .handle = fd };
         client.* = Client{
-            ._user = try User.init(User.Type.Client, "<unnamed>", server, allocator, addr),
+            ._user = try User.init(
+                User.Type.Client,
+                "<nickname-pending>",
+                "<username-pending>",
+                "<realname-pending>",
+                server,
+                allocator,
+                addr,
+            ),
             ._fd = fd,
             ._addr = addr,
             ._file_writer = file.writer(),
@@ -410,8 +483,6 @@ const Client = struct {
             ._input_buffer = undefined,
             ._input_received = 0,
             ._registration_state = RegistrationState.Init,
-            ._realname = [_]u8{0} ** @typeInfo(@TypeOf(client._realname)).Array.len,
-            ._realname_end = 0,
         };
         return client;
     }
@@ -441,11 +512,6 @@ const Client = struct {
     /// Get the clien file descriptor.
     fn getFileDescriptor(self: *const Client) i32 {
         return self._fd;
-    }
-
-    /// Get a slice with the client's real name.
-    fn getRealName(self: *const Client) []const u8 {
-        return self._realname[0..self._realname_end];
     }
 
     fn _info(self: *const Client, comptime fmt: []const u8, args: anytype) void {
@@ -489,12 +555,11 @@ const Client = struct {
         const username = try self._acceptParam(lexer, "<username>");
         const hostname = try self._acceptParam(lexer, "<hostname>");
         const servername = try self._acceptParam(lexer, "<servername>");
-
-        const realname = try self._acceptParamMax(lexer, "<realname>", self._realname.len);
-        mem.copy(u8, self._realname[0..], realname);
-        self._realname_end = realname.len;
-
+        const realname = try self._acceptParam(lexer, "<realname>");
         // TODO Check there no more unexpected parameters.
+
+        // TODO Report an error back to the client.
+        try self._user.setUserAndRealName(username, realname);
 
         // Progress the registration state.
         switch (self._registration_state) {
@@ -552,7 +617,6 @@ const Client = struct {
     /// Complete the client join after the initial USER and NICK pair is received.
     fn _completeRegistration(self: *Client) !void {
         assert(self._registration_state == .Complete);
-        assert(self._realname_end != 0);
 
         const nickname = self._user.getNickName();
         const hostname = self._user._server.getHostName();
@@ -876,6 +940,8 @@ const LocalBot = struct {
         local_bot.* = LocalBot{
             ._user = try User.init(
                 User.Type.LocalBot,
+                nickname,
+                nickname,
                 nickname,
                 server,
                 allocator,
