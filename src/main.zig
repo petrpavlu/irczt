@@ -109,6 +109,8 @@ const EscapeFormatter = struct {
         for (self._slice) |char| {
             if (char == '\\') {
                 try out_stream.writeAll("\\\\");
+            } else if (char == '\'') {
+                try out_stream.writeAll("\\'");
             } else if (char >= ' ' and char <= '~') {
                 try out_stream.writeAll(&[_]u8{char});
             } else {
@@ -254,8 +256,8 @@ const User = struct {
         // Make a copy of the nickname string.
         const nickname_copy = allocator.alloc(u8, nickname.len) catch |err| {
             warn(
-                "{}: Failed to allocate a nickname string buffer: {}.\n",
-                .{ init_prefix, @errorName(err) },
+                "{}: Failed to allocate a nickname storage with size of '{}' bytes: {}.\n",
+                .{ init_prefix, nickname.len, @errorName(err) },
             );
             return err;
         };
@@ -265,8 +267,8 @@ const User = struct {
         // Make a copy of the username string.
         const username_copy = allocator.alloc(u8, username.len) catch |err| {
             warn(
-                "{}: Failed to allocate a username string buffer: {}.\n",
-                .{ init_prefix, @errorName(err) },
+                "{}: Failed to allocate a username storage with size of '{}' bytes: {}.\n",
+                .{ init_prefix, username.len, @errorName(err) },
             );
             return err;
         };
@@ -276,8 +278,8 @@ const User = struct {
         // Make a copy of the realname string.
         const realname_copy = allocator.alloc(u8, realname.len) catch |err| {
             warn(
-                "{}: Failed to allocate a realname string buffer: {}.\n",
-                .{ init_prefix, @errorName(err) },
+                "{}: Failed to allocate a realname storage with size of '{}' bytes: {}.\n",
+                .{ init_prefix, realname.len, @errorName(err) },
             );
             return err;
         };
@@ -311,7 +313,10 @@ const User = struct {
 
         // Make a copy of the nickname string.
         const nickname_copy = allocator.alloc(u8, nickname.len) catch |err| {
-            self._warn("Failed to allocate a nickname string buffer: {}.\n", .{@errorName(err)});
+            self._warn(
+                "Failed to allocate a nickname storage with size of '{}' bytes: {}.\n",
+                .{ nickname.len, @errorName(err) },
+            );
             return err;
         };
         errdefer allocator.free(nickname_copy);
@@ -335,7 +340,10 @@ const User = struct {
 
         // Make a copy of the username string.
         const username_copy = allocator.alloc(u8, username.len) catch |err| {
-            self._warn("Failed to allocate a username string buffer: {}.\n", .{@errorName(err)});
+            self._warn(
+                "Failed to allocate a username storage with size of '{}' bytes: {}.\n",
+                .{ username.len, @errorName(err) },
+            );
             return err;
         };
         errdefer allocator.free(username_copy);
@@ -343,7 +351,10 @@ const User = struct {
 
         // Make a copy of the realname string.
         const realname_copy = allocator.alloc(u8, realname.len) catch |err| {
-            self._warn("Failed to allocate a realname string buffer: {}.\n", .{@errorName(err)});
+            self._warn(
+                "Failed to allocate a realname storage with size of '{}' bytes: {}.\n",
+                .{ realname.len, @errorName(err) },
+            );
             return err;
         };
         errdefer allocator.free(realname_copy);
@@ -383,7 +394,7 @@ const User = struct {
     fn _joinChannel(self: *User, channel: *Channel) !void {
         const channel_iter = self._channels.insert(channel, {}) catch |err| {
             self._warn(
-                "Failed to insert channel {} in the channel set: {}.\n",
+                "Failed to insert channel '{}' in the channel set: {}.\n",
                 .{ E(channel.getName()), @errorName(err) },
             );
             return err;
@@ -529,12 +540,12 @@ const Client = struct {
         const begin = lexer.getCurPos();
         const res = lexer.readParam();
         if (res.len == 0) {
-            self._warn("Position {}, expected parameter {}.\n", .{ begin + 1, param });
+            self._warn("Position '{}', expected parameter '{}'.\n", .{ begin + 1, param });
             return error.NeedsMoreParams;
         }
         if (res.len > maxlen) {
             self._warn(
-                "Position {}, parameter {} is too long (maximum: {}, actual: {}).\n",
+                "Position '{}', parameter '{}' is too long (maximum: '{}', actual: '{}').\n",
                 .{ begin + 1, param, maxlen, res.len },
             );
             // IRC has no error reply for too long parameters, so cut-off the value.
@@ -791,8 +802,8 @@ const Client = struct {
         }
         self._file_writer.print(fmt ++ "\r\n", args) catch |err| {
             self._warn(
-                "Failed to write the message into the client socket: {}.\n",
-                .{@errorName(err)},
+                "Failed to write the message into the client socket (fd '{}'): {}.\n",
+                .{ self._file_writer.context.handle, @errorName(err) },
             );
         };
     }
@@ -839,7 +850,10 @@ const Client = struct {
         assert(self._input_received < self._input_buffer.len);
         var pos = self._input_received;
         const read = self._file_reader.read(self._input_buffer[pos..]) catch |err| {
-            self._warn("Failed to read input from the client socket: {}.\n", .{@errorName(err)});
+            self._warn(
+                "Failed to read input from the client socket (fd '{}'): {}.\n",
+                .{ self._file_reader.context.handle, @errorName(err) },
+            );
             return err;
         };
         if (read == 0) {
@@ -1112,8 +1126,8 @@ const Channel = struct {
         // Make a copy of the name string.
         const name_copy = allocator.alloc(u8, name.len) catch |err| {
             warn(
-                "{}: Failed to allocate a channel name string buffer: {}.\n",
-                .{ E(name), @errorName(err) },
+                "{}: Failed to allocate a channel name storage with size of '{}' bytes: {}.\n",
+                .{ E(name), name.len, @errorName(err) },
             );
             return err;
         };
@@ -1172,7 +1186,7 @@ const Channel = struct {
         // TODO Fix handling of duplicated join.
         const user_iter = self._members.insert(user, {}) catch |err| {
             self._warn(
-                "Failed to insert user {} in the channel user set: {}.\n",
+                "Failed to insert user '{}' in the channel user set: {}.\n",
                 .{ E(user.getNickName()), @errorName(err) },
             );
             return err;
@@ -1184,7 +1198,7 @@ const Channel = struct {
         var ec: bool = undefined;
 
         self._info(
-            "User {} joined the channel (now at {} users).\n",
+            "User '{}' joined the channel (now at '{}' users).\n",
             .{ E(nickname), self._members.count() },
         );
 
@@ -1342,14 +1356,20 @@ const Server = struct {
 
         // Make a copy of the host and port strings.
         const host_copy = allocator.alloc(u8, host.len) catch |err| {
-            warn("Failed to allocate a host string buffer: {}.\n", .{@errorName(err)});
+            warn(
+                "Failed to allocate a hostname storage with size of '{}' bytes: {}.\n",
+                .{ host.len, @errorName(err) },
+            );
             return err;
         };
         errdefer allocator.free(host_copy);
         mem.copy(u8, host_copy, host);
 
         const port_copy = allocator.alloc(u8, port.len) catch |err| {
-            warn("Failed to allocate a port string buffer: {}.\n", .{@errorName(err)});
+            warn(
+                "Failed to allocate a port storage with size of '{}' bytes: {}.\n",
+                .{ port.len, @errorName(err) },
+            );
             return err;
         };
         errdefer allocator.free(port_copy);
@@ -1443,14 +1463,17 @@ const Server = struct {
 
         os.bind(listenfd, &self._sockaddr.any, self._sockaddr.getOsSockLen()) catch |err| {
             warn(
-                "Failed to bind to address {}:{}: {}.\n",
+                "Failed to bind to address '{}:{}': {}.\n",
                 .{ self._host, self._port, @errorName(err) },
             );
             return err;
         };
 
         os.listen(listenfd, os.SOMAXCONN) catch |err| {
-            warn("Failed to listen on {}:{}: {}.\n", .{ self._host, self._port, @errorName(err) });
+            warn(
+                "Failed to listen on '{}:{}': {}.\n",
+                .{ self._host, self._port, @errorName(err) },
+            );
             return err;
         };
 
@@ -1468,7 +1491,7 @@ const Server = struct {
         };
         os.epoll_ctl(epfd, os.EPOLL_CTL_ADD, listenfd, &listenfd_event) catch |err| {
             warn(
-                "Failed to add the server socket (fd {}) to the epoll instance: {}.\n",
+                "Failed to add the server socket (fd '{}') to the epoll instance: {}.\n",
                 .{ listenfd, @errorName(err) },
             );
             return err;
@@ -1481,14 +1504,14 @@ const Server = struct {
         };
         os.epoll_ctl(epfd, os.EPOLL_CTL_ADD, os.STDIN_FILENO, &stdinfd_event) catch |err| {
             warn(
-                "Failed to add the standard input to the epoll instance: {}.\n",
-                .{@errorName(err)},
+                "Failed to add the standard input (fd '{}') to the epoll instance: {}.\n",
+                .{ os.STDIN_FILENO, @errorName(err) },
             );
             return err;
         };
 
         // Listen for events.
-        info("Listening on {}:{}.\n", .{ self._host, self._port });
+        info("Listening on '{}:{}'.\n", .{ self._host, self._port });
 
         var next_bot_tick = time.milliTimestamp();
         while (true) {
@@ -1565,7 +1588,7 @@ const Server = struct {
         };
         os.epoll_ctl(epfd, os.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
             warn(
-                "{}: Failed to add the client socket (fd {}) to the epoll instance: {}.\n",
+                "{}: Failed to add the client socket (fd '{}') to the epoll instance: {}.\n",
                 .{ client_addr, clientfd, @errorName(err) },
             );
             return;
