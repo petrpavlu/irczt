@@ -121,7 +121,7 @@ const EscapeFormatter = struct {
 };
 
 /// Alias for EscapeFormatter.init().
-fn Protect(slice: []const u8) EscapeFormatter {
+fn E(slice: []const u8) EscapeFormatter {
     return EscapeFormatter.init(slice);
 }
 
@@ -156,7 +156,7 @@ const ConditionalEscapeFormatter = struct {
 };
 
 /// Alias for ConditionalEscapeFormatter.init().
-fn CProtect(slice: []const u8, cond: *bool) ConditionalEscapeFormatter {
+fn CE(slice: []const u8, cond: *bool) ConditionalEscapeFormatter {
     return ConditionalEscapeFormatter.init(slice, cond);
 }
 
@@ -384,7 +384,7 @@ const User = struct {
         const channel_iter = self._channels.insert(channel, {}) catch |err| {
             self._warn(
                 "Failed to insert channel {} in the channel set: {}.\n",
-                .{ Protect(channel.getName()), @errorName(err) },
+                .{ E(channel.getName()), @errorName(err) },
             );
             return err;
         };
@@ -630,27 +630,27 @@ const Client = struct {
         self._sendMessage(
             &ec,
             ":{} 251 {} :There are {} users and 0 invisible on 1 servers",
-            .{ hostname, CProtect(nickname, &ec), 1 },
+            .{ hostname, CE(nickname, &ec), 1 },
         );
 
         // Send motd.
         self._sendMessage(
             &ec,
             ":{} 375 {} :- {} Message of the Day -",
-            .{ hostname, CProtect(nickname, &ec), hostname },
+            .{ hostname, CE(nickname, &ec), hostname },
         );
         self._sendMessage(
             &ec,
             ":{} 372 {} :- Welcome to the {} IRC network!",
-            .{ hostname, CProtect(nickname, &ec), hostname },
+            .{ hostname, CE(nickname, &ec), hostname },
         );
         self._sendMessage(
             &ec,
             ":{} 376 {} :End of /MOTD command.",
-            .{ hostname, CProtect(nickname, &ec) },
+            .{ hostname, CE(nickname, &ec) },
         );
 
-        self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", .{CProtect(nickname, &ec)});
+        self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", .{CE(nickname, &ec)});
     }
 
     /// Check whether the user has completed the initial registration and is fully joined. If not
@@ -682,7 +682,7 @@ const Client = struct {
         self._sendMessage(
             &ec,
             ":{} 321 {} Channel :Users  Name",
-            .{ hostname, CProtect(nickname, &ec) },
+            .{ hostname, CE(nickname, &ec) },
         );
 
         // Send RPL_LIST for each channel.
@@ -695,7 +695,7 @@ const Client = struct {
             self._sendMessage(
                 &ec,
                 ":{} 322 {} {} {} :",
-                .{ hostname, CProtect(nickname, &ec), CProtect(name, &ec), user_count },
+                .{ hostname, CE(nickname, &ec), CE(name, &ec), user_count },
             );
         }
 
@@ -703,7 +703,7 @@ const Client = struct {
         self._sendMessage(
             &ec,
             ":{} 323 {} :End of /LIST",
-            .{ hostname, CProtect(nickname, &ec) },
+            .{ hostname, CE(nickname, &ec) },
         );
     }
 
@@ -724,7 +724,7 @@ const Client = struct {
             self._sendMessage(
                 &ec,
                 ":{} 403 {} {} :No such channel",
-                .{ hostname, CProtect(nickname, &ec), CProtect(channel_name, &ec) },
+                .{ hostname, CE(nickname, &ec), CE(channel_name, &ec) },
             );
             return;
         };
@@ -768,7 +768,7 @@ const Client = struct {
             self._sendMessage(
                 &ec,
                 ":{} 401 {} {} :No such nick/channel",
-                .{ hostname, CProtect(nickname, &ec), CProtect(receiver_name, &ec) },
+                .{ hostname, CE(nickname, &ec), CE(receiver_name, &ec) },
             );
             return;
         };
@@ -799,7 +799,7 @@ const Client = struct {
 
     /// Process a single message from the client.
     fn _processMessage(self: *Client, message: []const u8) void {
-        self._info("< {}\n", .{Protect(message)});
+        self._info("< {}\n", .{E(message)});
 
         var lexer = Lexer.init(message);
 
@@ -825,10 +825,10 @@ const Client = struct {
         } else if (mem.eql(u8, command, "PRIVMSG")) {
             res = self._processCommand_PRIVMSG(&lexer);
         } else
-            self._warn("Unrecognized command: {}\n", .{Protect(command)});
+            self._warn("Unrecognized command: {}\n", .{E(command)});
 
         if (res) {} else |err| {
-            self._warn("Error: {}!\n", .{Protect(command)});
+            self._warn("Error: {}!\n", .{E(command)});
             // TODO
         }
     }
@@ -920,7 +920,7 @@ const Client = struct {
         self._sendMessage(
             &ec,
             ":{} PRIVMSG {} :{}",
-            .{ CProtect(from, &ec), CProtect(to, &ec), CProtect(text, &ec) },
+            .{ CE(from, &ec), CE(to, &ec), CE(text, &ec) },
         );
     }
 };
@@ -953,13 +953,13 @@ const LocalBot = struct {
         message_length: u8,
         server: *Server,
     ) !*LocalBot {
-        info("{}: Creating the local bot.\n", .{Protect(nickname)});
+        info("{}: Creating the local bot.\n", .{E(nickname)});
 
         const allocator = server.getAllocator();
         const local_bot = allocator.create(LocalBot) catch |err| {
             warn(
                 "{}: Failed to allocate a local bot instance: {}.\n",
-                .{ Protect(nickname), @errorName(err) },
+                .{ E(nickname), @errorName(err) },
             );
             return err;
         };
@@ -970,7 +970,7 @@ const LocalBot = struct {
                 nickname,
                 nickname,
                 server,
-                Protect(nickname),
+                E(nickname),
             ),
             ._channels_target = channels_target,
             ._channels_leave_rate = channels_leave_rate,
@@ -999,12 +999,12 @@ const LocalBot = struct {
     }
 
     fn _info(self: *const LocalBot, comptime fmt: []const u8, args: anytype) void {
-        const nickname = Protect(self._user._nickname);
+        const nickname = E(self._user._nickname);
         info("{}: " ++ fmt, .{nickname} ++ args);
     }
 
     fn _warn(self: *const LocalBot, comptime fmt: []const u8, args: anytype) void {
-        const nickname = Protect(self._user._nickname);
+        const nickname = E(self._user._nickname);
         warn("{}: " ++ fmt, .{nickname} ++ args);
     }
 
@@ -1105,7 +1105,7 @@ const Channel = struct {
 
     /// Create a new channel with the given name.
     fn create(name: []const u8, server: *Server) !*Channel {
-        info("{}: Creating the channel.\n", .{Protect(name)});
+        info("{}: Creating the channel.\n", .{E(name)});
 
         const allocator = server.getAllocator();
 
@@ -1113,7 +1113,7 @@ const Channel = struct {
         const name_copy = allocator.alloc(u8, name.len) catch |err| {
             warn(
                 "{}: Failed to allocate a channel name string buffer: {}.\n",
-                .{ Protect(name), @errorName(err) },
+                .{ E(name), @errorName(err) },
             );
             return err;
         };
@@ -1124,7 +1124,7 @@ const Channel = struct {
         const channel = allocator.create(Channel) catch |err| {
             warn(
                 "{}: Failed to allocate a channel instance: {}.\n",
-                .{ Protect(name), @errorName(err) },
+                .{ E(name), @errorName(err) },
             );
             return err;
         };
@@ -1158,12 +1158,12 @@ const Channel = struct {
     }
 
     fn _info(self: *const Channel, comptime fmt: []const u8, args: anytype) void {
-        const name = Protect(self._name);
+        const name = E(self._name);
         info("{}: " ++ fmt, .{name} ++ args);
     }
 
     fn _warn(self: *const Channel, comptime fmt: []const u8, args: anytype) void {
-        const name = Protect(self._name);
+        const name = E(self._name);
         warn("{}: " ++ fmt, .{name} ++ args);
     }
 
@@ -1173,7 +1173,7 @@ const Channel = struct {
         const user_iter = self._users.insert(user, {}) catch |err| {
             self._warn(
                 "Failed to insert user {} in the channel user set: {}.\n",
-                .{ Protect(user.getNickName()), @errorName(err) },
+                .{ E(user.getNickName()), @errorName(err) },
             );
             return err;
         };
@@ -1185,7 +1185,7 @@ const Channel = struct {
 
         self._info(
             "User {} joined the channel (now at {} users).\n",
-            .{ Protect(nickname), self._users.count() },
+            .{ E(nickname), self._users.count() },
         );
 
         // Inform all clients about the join.
@@ -1195,7 +1195,7 @@ const Channel = struct {
             channel_user.sendMessage(
                 &ec,
                 ":{} JOIN {}",
-                .{ CProtect(nickname, &ec), CProtect(self._name, &ec) },
+                .{ CE(nickname, &ec), CE(self._name, &ec) },
             );
         }
 
@@ -1205,19 +1205,14 @@ const Channel = struct {
             user.sendMessage(
                 &ec,
                 ":{} 332 {} {} :{}",
-                .{
-                    hostname,
-                    CProtect(nickname, &ec),
-                    CProtect(self._name, &ec),
-                    CProtect(self._topic.?, &ec),
-                },
+                .{ hostname, CE(nickname, &ec), CE(self._name, &ec), CE(self._topic.?, &ec) },
             );
         } else {
             // Send RPL_NOTOPIC.
             user.sendMessage(
                 &ec,
                 ":{} 332 {} {} :No topic is set",
-                .{ hostname, CProtect(nickname, &ec), CProtect(self._name, &ec) },
+                .{ hostname, CE(nickname, &ec), CE(self._name, &ec) },
             );
         }
 
@@ -1225,22 +1220,18 @@ const Channel = struct {
         channel_user_iter = self._users.iterator();
         while (channel_user_iter.next()) |channel_user_node| {
             const channel_user = channel_user_node.key();
+            const member_nickname = channel_user.getNickName();
             user.sendMessage(
                 &ec,
                 ":{} 353 {} = {} :{}",
-                .{
-                    hostname,
-                    CProtect(nickname, &ec),
-                    CProtect(self._name, &ec),
-                    CProtect(channel_user.getNickName(), &ec),
-                },
+                .{ hostname, CE(nickname, &ec), CE(self._name, &ec), CE(member_nickname, &ec) },
             );
         }
         // Send RPL_ENDOFNAMES.
         user.sendMessage(
             &ec,
             ":{} 366 {} {} :End of /NAMES list",
-            .{ hostname, CProtect(nickname, &ec), CProtect(self._name, &ec) },
+            .{ hostname, CE(nickname, &ec), CE(self._name, &ec) },
         );
     }
 
@@ -1259,12 +1250,12 @@ const Channel = struct {
                 ":{} 352 {} {} {} hidden {} {} H :0 {}",
                 .{
                     hostname,
-                    CProtect(nickname, &ec),
-                    CProtect(self._name, &ec),
-                    CProtect(channel_user.getUserName(), &ec),
+                    CE(nickname, &ec),
+                    CE(self._name, &ec),
+                    CE(channel_user.getUserName(), &ec),
                     self._server.getHostName(),
-                    CProtect(channel_user.getNickName(), &ec),
-                    CProtect(channel_user.getRealName(), &ec),
+                    CE(channel_user.getNickName(), &ec),
+                    CE(channel_user.getRealName(), &ec),
                 },
             );
         }
@@ -1272,7 +1263,7 @@ const Channel = struct {
         user.sendMessage(
             &ec,
             ":{} 315 {} {} :End of /WHO list",
-            .{ hostname, CProtect(nickname, &ec), CProtect(self._name, &ec) },
+            .{ hostname, CE(nickname, &ec), CE(self._name, &ec) },
         );
     }
 
@@ -1609,7 +1600,7 @@ const Server = struct {
         const channel_iter = self._channels.insert(channel, {}) catch |err| {
             warn(
                 "{}: Failed to insert the channel in the main channel set: {}.\n",
-                .{ Protect(name), @errorName(err) },
+                .{ E(name), @errorName(err) },
             );
             return err;
         };
@@ -1618,7 +1609,7 @@ const Server = struct {
         _ = self._channels_by_name.insert(channel.getName(), channel) catch |err| {
             warn(
                 "{}: Failed to insert the channel in the by-name channel set: {}.\n",
-                .{ Protect(name), @errorName(err) },
+                .{ E(name), @errorName(err) },
             );
             return err;
         };
@@ -1652,7 +1643,7 @@ const Server = struct {
         const local_bot_iter = self._local_bots.insert(local_bot, {}) catch |err| {
             warn(
                 "{}: Failed to insert the local bot in the main local bot set: {}.\n",
-                .{ Protect(nickname), @errorName(err) },
+                .{ E(nickname), @errorName(err) },
             );
             return err;
         };
