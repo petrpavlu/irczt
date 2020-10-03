@@ -11,7 +11,6 @@ const os = std.os;
 const rand = std.rand;
 const time = std.time;
 
-const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
@@ -229,7 +228,6 @@ const User = struct {
     _type: Type,
 
     _server: *Server,
-    _allocator: *Allocator,
 
     /// Unique nick name (owned).
     _nickname: []u8,
@@ -249,9 +247,10 @@ const User = struct {
         username: []const u8,
         realname: []const u8,
         server: *Server,
-        allocator: *Allocator,
         init_prefix: anytype,
     ) !User {
+        const allocator = server.getAllocator();
+
         // Make a copy of the nickname string.
         const nickname_copy = allocator.alloc(u8, nickname.len) catch |err| {
             warn(
@@ -288,7 +287,6 @@ const User = struct {
         return User{
             ._type = type_,
             ._server = server,
-            ._allocator = allocator,
             ._nickname = nickname_copy,
             ._username = username_copy,
             ._realname = realname_copy,
@@ -297,9 +295,10 @@ const User = struct {
     }
 
     fn deinit(self: *User) void {
-        self._allocator.free(self._nickname);
-        self._allocator.free(self._username);
-        self._allocator.free(self._realname);
+        const allocator = self._server.getAllocator();
+        allocator.free(self._nickname);
+        allocator.free(self._username);
+        allocator.free(self._realname);
         self._channels.deinit();
     }
 
@@ -308,16 +307,18 @@ const User = struct {
     }
 
     fn setNickName(self: *User, nickname: []const u8) !void {
+        const allocator = self._server.getAllocator();
+
         // Make a copy of the nickname string.
-        const nickname_copy = self._allocator.alloc(u8, nickname.len) catch |err| {
+        const nickname_copy = allocator.alloc(u8, nickname.len) catch |err| {
             self._warn("Failed to allocate a nickname string buffer: {}.\n", .{@errorName(err)});
             return err;
         };
-        errdefer self._allocator.free(nickname_copy);
+        errdefer allocator.free(nickname_copy);
         mem.copy(u8, nickname_copy, nickname);
 
         // Set the new nickname.
-        self._allocator.free(self._nickname);
+        allocator.free(self._nickname);
         self._nickname = nickname_copy;
     }
 
@@ -330,27 +331,29 @@ const User = struct {
     }
 
     fn setUserAndRealName(self: *User, username: []const u8, realname: []const u8) !void {
+        const allocator = self._server.getAllocator();
+
         // Make a copy of the username string.
-        const username_copy = self._allocator.alloc(u8, username.len) catch |err| {
+        const username_copy = allocator.alloc(u8, username.len) catch |err| {
             self._warn("Failed to allocate a username string buffer: {}.\n", .{@errorName(err)});
             return err;
         };
-        errdefer self._allocator.free(username_copy);
+        errdefer allocator.free(username_copy);
         mem.copy(u8, username_copy, username);
 
         // Make a copy of the realname string.
-        const realname_copy = self._allocator.alloc(u8, realname.len) catch |err| {
+        const realname_copy = allocator.alloc(u8, realname.len) catch |err| {
             self._warn("Failed to allocate a realname string buffer: {}.\n", .{@errorName(err)});
             return err;
         };
-        errdefer self._allocator.free(realname_copy);
+        errdefer allocator.free(realname_copy);
         mem.copy(u8, realname_copy, realname);
 
         // Set the new username and realname.
-        self._allocator.free(self._username);
+        allocator.free(self._username);
         self._username = username_copy;
 
-        self._allocator.free(self._realname);
+        allocator.free(self._realname);
         self._realname = realname_copy;
     }
 
@@ -455,11 +458,12 @@ const Client = struct {
 
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
     /// constructing the client fails, the file descriptor gets closed.
-    fn create(fd: i32, addr: net.Address, server: *Server, allocator: *Allocator) !*Client {
+    fn create(fd: i32, addr: net.Address, server: *Server) !*Client {
         errdefer os.close(fd);
 
         info("{}: Creating the client.\n", .{addr});
 
+        const allocator = server.getAllocator();
         const client = allocator.create(Client) catch |err| {
             warn("{}: Failed to allocate a client instance: {}.\n", .{ addr, @errorName(err) });
             return err;
@@ -472,7 +476,6 @@ const Client = struct {
                 "<username-pending>",
                 "<realname-pending>",
                 server,
-                allocator,
                 addr,
             ),
             ._fd = fd,
@@ -494,7 +497,7 @@ const Client = struct {
         os.close(self._fd);
         self._info("Closed client connection.\n", .{});
 
-        const allocator = self._user._allocator;
+        const allocator = self._user._server.getAllocator();
         self._user.deinit();
         allocator.destroy(self);
     }
@@ -949,10 +952,10 @@ const LocalBot = struct {
         message_rate: f32,
         message_length: u8,
         server: *Server,
-        allocator: *Allocator,
     ) !*LocalBot {
         info("{}: Creating the local bot.\n", .{Protect(nickname)});
 
+        const allocator = server.getAllocator();
         const local_bot = allocator.create(LocalBot) catch |err| {
             warn(
                 "{}: Failed to allocate a local bot instance: {}.\n",
@@ -967,7 +970,6 @@ const LocalBot = struct {
                 nickname,
                 nickname,
                 server,
-                allocator,
                 Protect(nickname),
             ),
             ._channels_target = channels_target,
@@ -981,7 +983,7 @@ const LocalBot = struct {
     fn destroy(self: *LocalBot) void {
         self._info("Destroying the local bot.\n", .{});
 
-        const allocator = self._user._allocator;
+        const allocator = self._user._server.getAllocator();
         self._user.deinit();
         allocator.destroy(self);
     }
@@ -1091,7 +1093,6 @@ const LocalBotSet = avl.Map(*LocalBot, void, avl.getLessThanFn(*LocalBot));
 
 const Channel = struct {
     _server: *Server,
-    _allocator: *Allocator,
 
     /// Channel name (owned).
     _name: []const u8,
@@ -1103,8 +1104,10 @@ const Channel = struct {
     _users: UserSet,
 
     /// Create a new channel with the given name.
-    fn create(name: []const u8, server: *Server, allocator: *Allocator) !*Channel {
+    fn create(name: []const u8, server: *Server) !*Channel {
         info("{}: Creating the channel.\n", .{Protect(name)});
+
+        const allocator = server.getAllocator();
 
         // Make a copy of the name string.
         const name_copy = allocator.alloc(u8, name.len) catch |err| {
@@ -1127,7 +1130,6 @@ const Channel = struct {
         };
         channel.* = Channel{
             ._server = server,
-            ._allocator = allocator,
             ._name = name_copy,
             ._topic = null,
             ._users = UserSet.init(allocator),
@@ -1138,12 +1140,13 @@ const Channel = struct {
     fn destroy(self: *Channel) void {
         self._info("Destroying the channel.\n", .{});
 
-        self._users.deinit();
+        const allocator = self._server.getAllocator();
+        allocator.free(self._name);
         if (self._topic != null) {
-            self._allocator.free(self._topic.?);
+            allocator.free(self._topic.?);
         }
-        self._allocator.free(self._name);
-        self._allocator.destroy(self);
+        self._users.deinit();
+        allocator.destroy(self);
     }
 
     fn getName(self: *const Channel) []const u8 {
@@ -1289,7 +1292,8 @@ const ChannelSet = avl.Map(*Channel, void, avl.getLessThanFn(*Channel));
 const ChannelNameSet = avl.Map([]const u8, *Channel, avl.getLessThanFn([]const u8));
 
 const Server = struct {
-    _allocator: *Allocator,
+    /// Memory allocator, used by the server and related channel+user objects.
+    _allocator: *mem.Allocator,
 
     /// Random number generator.
     _rng: *rand.Random,
@@ -1321,7 +1325,7 @@ const Server = struct {
     fn create(
         address: []const u8,
         word_bank: []const []const u8,
-        allocator: *Allocator,
+        allocator: *mem.Allocator,
         rng: *rand.Random,
     ) !*Server {
         // Parse the address.
@@ -1412,6 +1416,11 @@ const Server = struct {
         self._allocator.free(self._host);
         self._allocator.free(self._port);
         self._allocator.destroy(self);
+    }
+
+    /// Obtain the memory allocator.
+    fn getAllocator(self: *Server) *mem.Allocator {
+        return self._allocator;
     }
 
     /// Obtain the random number generator.
@@ -1549,7 +1558,7 @@ const Server = struct {
 
         // Create a new client. This transfers ownership of the clientfd to the Client
         // instance.
-        const client = Client.create(clientfd, client_addr, self, self._allocator) catch return;
+        const client = Client.create(clientfd, client_addr, self) catch return;
         errdefer client.destroy();
 
         const client_iter = self._clients.insert(client, {}) catch |err| {
@@ -1594,7 +1603,7 @@ const Server = struct {
 
     /// Create a new channel with the given name.
     fn createChannel(self: *Server, name: []const u8) !void {
-        const channel = try Channel.create(name, self, self._allocator);
+        const channel = try Channel.create(name, self);
         errdefer channel.destroy();
 
         const channel_iter = self._channels.insert(channel, {}) catch |err| {
@@ -1637,7 +1646,6 @@ const Server = struct {
             message_rate,
             message_length,
             self,
-            self._allocator,
         );
         errdefer local_bot.destroy();
 
