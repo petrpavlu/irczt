@@ -297,11 +297,18 @@ const User = struct {
     }
 
     fn deinit(self: *User) void {
+        // Leave all joined channels.
+        var channel_iter = self._channels.iterator();
+        while (channel_iter.next()) |channel_node| {
+            const channel = channel_node.key();
+            channel.part(self);
+        }
+        self._channels.deinit();
+
         const allocator = self._server.getAllocator();
         allocator.free(self._nickname);
         allocator.free(self._username);
         allocator.free(self._realname);
-        self._channels.deinit();
     }
 
     fn getNickName(self: *const User) []const u8 {
@@ -402,6 +409,15 @@ const User = struct {
         errdefer self._channels.remove(channel_iter);
 
         try channel.join(self);
+    }
+
+    /// Leave a specified channel.
+    fn _partChannel(self: *User, channel: *Channel) void {
+        const channel_iter = self._channels.find(channel);
+        assert(channel_iter.valid());
+
+        channel.part(self);
+        self._channels.remove(channel_iter);
     }
 
     fn sendMessage(
@@ -743,6 +759,41 @@ const Client = struct {
         try self._user._joinChannel(channel);
     }
 
+    /// Process the PART command.
+    /// RFC 1459: Parameters: <channel>{,<channel>}
+    /// RFC 2812: Parameters: <channel> *( "," <channel> ) [ <Part Message> ]
+    fn _processCommand_PART(self: *Client, lexer: *Lexer) !void {
+        try self._checkRegistered();
+
+        // TODO Parse all parameters.
+        const channel_name = try self._acceptParam(lexer, "<channel>");
+
+        const nickname = self._user.getNickName();
+        const hostname = self._user._server.getHostName();
+        var ec: bool = undefined;
+
+        const channel = self._user._server.lookupChannel(channel_name) orelse {
+            // Send ERR_NOSUCHCHANNEL.
+            self._sendMessage(
+                &ec,
+                ":{} 403 {} {} :No such channel",
+                .{ hostname, CE(nickname, &ec), CE(channel_name, &ec) },
+            );
+            return;
+        };
+        const channel_iter = self._user._channels.find(channel);
+        if (!channel_iter.valid()) {
+            // Send ERR_NOTONCHANNEL.
+            self._sendMessage(
+                &ec,
+                ":{} 442 {} {} :You're not on that channel",
+                .{ hostname, CE(nickname, &ec), CE(channel_name, &ec) },
+            );
+            return;
+        }
+        self._user._partChannel(channel);
+    }
+
     /// Process the WHO command.
     /// Parameters: [<name> [<o>]]
     fn _processCommand_WHO(self: *Client, lexer: *Lexer) !void {
@@ -831,6 +882,8 @@ const Client = struct {
             res = self._processCommand_LIST(&lexer);
         } else if (mem.eql(u8, command, "JOIN")) {
             res = self._processCommand_JOIN(&lexer);
+        } else if (mem.eql(u8, command, "PART")) {
+            res = self._processCommand_PART(&lexer);
         } else if (mem.eql(u8, command, "WHO")) {
             res = self._processCommand_WHO(&lexer);
         } else if (mem.eql(u8, command, "PRIVMSG")) {
@@ -1159,7 +1212,11 @@ const Channel = struct {
         if (self._topic != null) {
             allocator.free(self._topic.?);
         }
+
+        // Channels can be destroyed only after all users leave.
+        assert(self._members.count() == 0);
         self._members.deinit();
+
         allocator.destroy(self);
     }
 
@@ -1246,6 +1303,32 @@ const Channel = struct {
             &ec,
             ":{} 366 {} {} :End of /NAMES list",
             .{ hostname, CE(nickname, &ec), CE(self._name, &ec) },
+        );
+    }
+
+    /// Process leave from a user.
+    fn part(self: *Channel, user: *User) void {
+        const nickname = user.getNickName();
+        var ec: bool = undefined;
+
+        // Inform all members about the leave.
+        var member_iter = self._members.iterator();
+        while (member_iter.next()) |member_node| {
+            const member = member_node.key();
+            member.sendMessage(
+                &ec,
+                ":{} PART {}",
+                .{ CE(nickname, &ec), CE(self._name, &ec) },
+            );
+        }
+
+        const user_iter = self._members.find(user);
+        assert(user_iter.valid());
+        self._members.remove(user_iter);
+
+        self._info(
+            "User '{}' parted the channel (now at '{}' users).\n",
+            .{ E(nickname), self._members.count() },
         );
     }
 
