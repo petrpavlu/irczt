@@ -691,11 +691,11 @@ const Client = struct {
         while (channel_iter.next()) |channel_node| {
             const channel = channel_node.key();
             const name = channel.getName();
-            const user_count = channel.getUserCount();
+            const member_count = channel.getMemberCount();
             self._sendMessage(
                 &ec,
                 ":{} 322 {} {} {} :",
-                .{ hostname, CE(nickname, &ec), CE(name, &ec), user_count },
+                .{ hostname, CE(nickname, &ec), CE(name, &ec), member_count },
             );
         }
 
@@ -1101,7 +1101,7 @@ const Channel = struct {
     _topic: ?[]const u8,
 
     /// Users in the channel.
-    _users: UserSet,
+    _members: UserSet,
 
     /// Create a new channel with the given name.
     fn create(name: []const u8, server: *Server) !*Channel {
@@ -1132,7 +1132,7 @@ const Channel = struct {
             ._server = server,
             ._name = name_copy,
             ._topic = null,
-            ._users = UserSet.init(allocator),
+            ._members = UserSet.init(allocator),
         };
         return channel;
     }
@@ -1145,7 +1145,7 @@ const Channel = struct {
         if (self._topic != null) {
             allocator.free(self._topic.?);
         }
-        self._users.deinit();
+        self._members.deinit();
         allocator.destroy(self);
     }
 
@@ -1153,8 +1153,8 @@ const Channel = struct {
         return self._name;
     }
 
-    fn getUserCount(self: *const Channel) usize {
-        return self._users.count();
+    fn getMemberCount(self: *const Channel) usize {
+        return self._members.count();
     }
 
     fn _info(self: *const Channel, comptime fmt: []const u8, args: anytype) void {
@@ -1170,14 +1170,14 @@ const Channel = struct {
     /// Process join from a user.
     fn join(self: *Channel, user: *User) !void {
         // TODO Fix handling of duplicated join.
-        const user_iter = self._users.insert(user, {}) catch |err| {
+        const user_iter = self._members.insert(user, {}) catch |err| {
             self._warn(
                 "Failed to insert user {} in the channel user set: {}.\n",
                 .{ E(user.getNickName()), @errorName(err) },
             );
             return err;
         };
-        errdefer self._users.remove(user_iter);
+        errdefer self._members.remove(user_iter);
 
         const nickname = user.getNickName();
         const hostname = self._server.getHostName();
@@ -1185,14 +1185,14 @@ const Channel = struct {
 
         self._info(
             "User {} joined the channel (now at {} users).\n",
-            .{ E(nickname), self._users.count() },
+            .{ E(nickname), self._members.count() },
         );
 
         // Inform all clients about the join.
-        var channel_user_iter = self._users.iterator();
-        while (channel_user_iter.next()) |channel_user_node| {
-            const channel_user = channel_user_node.key();
-            channel_user.sendMessage(
+        var member_iter = self._members.iterator();
+        while (member_iter.next()) |member_node| {
+            const member = member_node.key();
+            member.sendMessage(
                 &ec,
                 ":{} JOIN {}",
                 .{ CE(nickname, &ec), CE(self._name, &ec) },
@@ -1217,10 +1217,10 @@ const Channel = struct {
         }
 
         // Send RPL_NAMREPLY.
-        channel_user_iter = self._users.iterator();
-        while (channel_user_iter.next()) |channel_user_node| {
-            const channel_user = channel_user_node.key();
-            const member_nickname = channel_user.getNickName();
+        member_iter = self._members.iterator();
+        while (member_iter.next()) |member_node| {
+            const member = member_node.key();
+            const member_nickname = member.getNickName();
             user.sendMessage(
                 &ec,
                 ":{} 353 {} = {} :{}",
@@ -1242,20 +1242,17 @@ const Channel = struct {
         var ec: bool = undefined;
 
         // Send RPL_WHOREPLY.
-        var channel_user_iter = self._users.iterator();
-        while (channel_user_iter.next()) |channel_user_node| {
-            const channel_user = channel_user_node.key();
+        var member_iter = self._members.iterator();
+        while (member_iter.next()) |member_node| {
+            const member = member_node.key();
             user.sendMessage(
                 &ec,
                 ":{} 352 {} {} {} hidden {} {} H :0 {}",
                 .{
-                    hostname,
-                    CE(nickname, &ec),
-                    CE(self._name, &ec),
-                    CE(channel_user.getUserName(), &ec),
-                    self._server.getHostName(),
-                    CE(channel_user.getNickName(), &ec),
-                    CE(channel_user.getRealName(), &ec),
+                    hostname,                      CE(nickname, &ec),
+                    CE(self._name, &ec),           CE(member.getUserName(), &ec),
+                    self._server.getHostName(),    CE(member.getNickName(), &ec),
+                    CE(member.getRealName(), &ec),
                 },
             );
         }
@@ -1270,10 +1267,10 @@ const Channel = struct {
     /// Send a message to all users in the channel.
     fn sendPrivMsg(self: *Channel, user: *const User, text: []const u8) void {
         const from_name = user.getNickName();
-        var channel_user_iter = self._users.iterator();
-        while (channel_user_iter.next()) |channel_user_node| {
-            const channel_user = channel_user_node.key();
-            channel_user.sendPrivMsg(from_name, self._name, text);
+        var member_iter = self._members.iterator();
+        while (member_iter.next()) |member_node| {
+            const member = member_node.key();
+            member.sendPrivMsg(from_name, self._name, text);
         }
     }
 };
