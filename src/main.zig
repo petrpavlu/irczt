@@ -298,18 +298,62 @@ const User = struct {
     }
 
     fn deinit(self: *User) void {
-        // Leave all joined channels.
-        var channel_iter = self._channels.iterator();
-        while (channel_iter.next()) |channel_node| {
-            const channel = channel_node.key();
-            channel.part(self);
-        }
+        // Quit all channels.
+        self.quit("Client quit");
+        assert(self._channels.count() == 0);
         self._channels.deinit();
 
         const allocator = self._server.getAllocator();
         allocator.free(self._nickname);
         allocator.free(self._username);
         allocator.free(self._realname);
+    }
+
+    /// Quit the server.
+    fn quit(self: *User, quit_message: []const u8) void {
+        // Send a QUIT message to users in all joined channels.
+        if (self._channels.count() == 0) {
+            return;
+        }
+
+        var ec: bool = undefined;
+
+        // Process clients only, local bots do not need the quit information.
+        const clients = self._server.getClients();
+        var client_iterator = clients.iterator();
+        while (client_iterator.next()) |client_node| {
+            const client = client_node.key();
+
+            // Skip if this is the exiting user.
+            if (&client._user == self) {
+                continue;
+            }
+
+            // Check if the client is in any joined channel.
+            var found = false;
+            var channel_iter = self._channels.iterator();
+            while (channel_iter.next()) |channel_node| {
+                const channel = channel_node.key();
+                if (channel.hasMember(self)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                continue;
+            }
+
+            // Inform the client about the quit.
+            client._sendMessage(&ec, "{} QUIT :{}", .{ CE(self._nickname, &ec), quit_message });
+        }
+
+        // Quit all joined channels.
+        var channel_iter = self._channels.iterator();
+        while (channel_iter.next()) |channel_node| {
+            const channel = channel_node.key();
+            channel.quit(self);
+        }
+        self._channels.clear();
     }
 
     fn getNickName(self: *const User) []const u8 {
@@ -695,6 +739,17 @@ const Client = struct {
         return error.NotRegistered;
     }
 
+    /// Process the QUIT command.
+    /// Parameters: [<Quit message>]
+    fn _processCommand_QUIT(self: *Client, lexer: *Lexer) !void {
+        // TODO Parse all parameters.
+        const quit_message = try self._acceptParam(lexer, "<quit message>");
+
+        self._user.quit(quit_message);
+        // TODO Send ERROR to the user.
+        return error.Quit;
+    }
+
     /// Process the LIST command.
     /// Parameters: [<channel>{,<channel>} [<server>]]
     fn _processCommand_LIST(self: *Client, lexer: *Lexer) !void {
@@ -861,7 +916,7 @@ const Client = struct {
     }
 
     /// Process a single message from the client.
-    fn _processMessage(self: *Client, message: []const u8) void {
+    fn _processMessage(self: *Client, message: []const u8) !void {
         self._info("< {}\n", .{E(message)});
 
         var lexer = Lexer.init(message);
@@ -879,6 +934,8 @@ const Client = struct {
             res = self._processCommand_USER(&lexer);
         } else if (mem.eql(u8, command, "NICK")) {
             res = self._processCommand_NICK(&lexer);
+        } else if (mem.eql(u8, command, "QUIT")) {
+            res = self._processCommand_QUIT(&lexer);
         } else if (mem.eql(u8, command, "LIST")) {
             res = self._processCommand_LIST(&lexer);
         } else if (mem.eql(u8, command, "JOIN")) {
@@ -897,6 +954,7 @@ const Client = struct {
             self._warn("Error: {}!\n", .{E(command)});
             // TODO
         }
+        return res;
     }
 
     /// Read new input available on client's socket and process it. A number of bytes read is
@@ -931,9 +989,11 @@ const Client = struct {
                 },
                 Client.InputState.Normal_CR => {
                     if (char == '\n') {
-                        self._processMessage(self._input_buffer[message_begin .. pos - 1]);
+                        const res = self._processMessage(self._input_buffer[message_begin .. pos - 1]);
                         self._input_state = Client.InputState.Normal;
                         message_begin = pos + 1;
+                        // TODO Keep the client buffers in consistent state even on error.
+                        if (res) {} else |err| return err;
                     } else {
                         // TODO Print an error message.
                         self._input_state = Client.InputState.Invalid;
@@ -1230,6 +1290,12 @@ const Channel = struct {
         return self._members.count();
     }
 
+    fn hasMember(self: *const Channel, user: *User) bool {
+        // TODO Constify user.
+        const member_iter = self._members.find(user);
+        return member_iter.valid();
+    }
+
     fn _info(self: *const Channel, comptime fmt: []const u8, args: anytype) void {
         const name = E(self._name);
         info("{}: " ++ fmt, .{name} ++ args);
@@ -1331,6 +1397,20 @@ const Channel = struct {
         self._info(
             "User '{}' parted the channel (now at '{}' users).\n",
             .{ E(nickname), self._members.count() },
+        );
+    }
+
+    /// Process quit from a user.
+    fn quit(self: *Channel, user: *User) void {
+        // Note that members are not informed about the user leaving. It is a responsibility of the
+        // caller to send this information to all relevant users.
+        const user_iter = self._members.find(user);
+        assert(user_iter.valid());
+        self._members.remove(user_iter);
+
+        self._info(
+            "User '{}' quit the channel (now at '{}' users).\n",
+            .{ E(user.getNickName()), self._members.count() },
         );
     }
 
@@ -1528,6 +1608,10 @@ const Server = struct {
 
     fn getHostName(self: *const Server) []const u8 {
         return self._host;
+    }
+
+    fn getClients(self: *Server) *const ClientSet {
+        return &self._clients;
     }
 
     fn getChannels(self: *Server) *const ChannelSet {
