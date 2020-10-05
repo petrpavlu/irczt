@@ -762,11 +762,7 @@ const Client = struct {
         var ec: bool = undefined;
 
         // Send RPL_LISTSTART.
-        self._sendMessage(
-            &ec,
-            ":{} 321 {} Channel :Users  Name",
-            .{ hostname, CE(nickname, &ec) },
-        );
+        self._sendMessage(&ec, ":{} 321 {} Channel :Users  Name", .{ hostname, CE(nickname, &ec) });
 
         // Send RPL_LIST for each channel.
         const channels = self._user._server.getChannels();
@@ -783,11 +779,7 @@ const Client = struct {
         }
 
         // Send RPL_LISTEND.
-        self._sendMessage(
-            &ec,
-            ":{} 323 {} :End of /LIST",
-            .{ hostname, CE(nickname, &ec) },
-        );
+        self._sendMessage(&ec, ":{} 323 {} :End of /LIST", .{ hostname, CE(nickname, &ec) });
     }
 
     /// Process the JOIN command.
