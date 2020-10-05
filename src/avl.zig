@@ -95,7 +95,12 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
         }
 
         pub fn deinit(self: *Self) void {
+            self.clear();
+        }
+
+        pub fn clear(self: *Self) void {
             if (self._root == null) {
+                assert(self._size == 0);
                 return;
             }
 
@@ -132,6 +137,9 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
                     break;
                 }
             }
+
+            self._root = null;
+            self._size = 0;
         }
 
         pub fn insert(self: *Self, key: Key, value: Value) !Iterator {
