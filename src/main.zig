@@ -644,7 +644,7 @@ const Client = struct {
             .HasNICK => {
                 self._registration_state = .Complete;
                 // Complete the join if the initial USER and NICK pair was already received.
-                try self._completeRegistration();
+                self._completeRegistration();
             },
             .HasUSER, .Complete => {
                 // States .HasUSER or .Complete are rejected earlier.
@@ -680,7 +680,7 @@ const Client = struct {
             .HasUSER => {
                 self._registration_state = .Complete;
                 // Complete the join if the initial USER and NICK pair was already received.
-                try self._completeRegistration();
+                self._completeRegistration();
             },
             .HasNICK, .Complete => {
                 // Do nothing for .HasNICK or .Complete. The NICK command is in this case not a part
@@ -690,7 +690,7 @@ const Client = struct {
     }
 
     /// Complete the client join after the initial USER and NICK pair is received.
-    fn _completeRegistration(self: *Client) !void {
+    fn _completeRegistration(self: *Client) void {
         assert(self._registration_state == .Complete);
 
         const nickname = self._user.getNickName();
