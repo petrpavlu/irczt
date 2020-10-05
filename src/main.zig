@@ -584,7 +584,7 @@ const Client = struct {
         return @fieldParentPtr(Client, "_user", user);
     }
 
-    /// Get the clien file descriptor.
+    /// Get the client's file descriptor.
     fn getFileDescriptor(self: *const Client) i32 {
         return self._fd;
     }
@@ -1327,7 +1327,7 @@ const Channel = struct {
             .{ E(nickname), self._members.count() },
         );
 
-        // Inform all clients about the join.
+        // Inform all members about the join.
         var member_iter = self._members.iterator();
         while (member_iter.next()) |member_node| {
             const member = member_node.key();
@@ -1888,7 +1888,7 @@ pub fn main() u8 {
         server.createChannel(channel) catch return 1;
     }
 
-    // Create pre-defined artificial users.
+    // Create artificial users.
     const rng = &prng.random;
     for (config.local_bots) |local_bot| {
         server.createLocalBot(
