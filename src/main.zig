@@ -33,8 +33,9 @@ fn formatTimeStamp(output: *[timestamp_str_width]u8, milliseconds: u64) void {
         } else if (rem == 0) {
             if (i > timestamp_str_width - 6) {
                 output[i - 1] = '0';
-            } else
+            } else {
                 output[i - 1] = ' ';
+            }
         } else {
             output[i - 1] = '0' + @intCast(u8, rem % 10);
             rem /= 10;
@@ -888,8 +889,9 @@ const Client = struct {
             res = self._processCommand_WHO(&lexer);
         } else if (mem.eql(u8, command, "PRIVMSG")) {
             res = self._processCommand_PRIVMSG(&lexer);
-        } else
+        } else {
             self._warn("Unrecognized command: {}\n", .{E(command)});
+        }
 
         if (res) {} else |err| {
             self._warn("Error: {}!\n", .{E(command)});
