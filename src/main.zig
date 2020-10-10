@@ -325,7 +325,7 @@ const User = struct {
     }
 
     fn getNickName(self: *const User) []const u8 {
-        return if (self._nickname != null) self._nickname.? else "<nickname-pending>";
+        return if (self._nickname != null) self._nickname.? else "*";
     }
 
     fn hasNickName(self: *const User) bool {
@@ -365,11 +365,11 @@ const User = struct {
     }
 
     fn getUserName(self: *const User) []const u8 {
-        return if (self._username != null) self._username.? else "<username-pending>";
+        return if (self._username != null) self._username.? else "*";
     }
 
     fn getRealName(self: *const User) []const u8 {
-        return if (self._realname != null) self._realname.? else "<realname-pending>";
+        return if (self._realname != null) self._realname.? else "*";
     }
 
     fn _user(self: *User, username: []const u8, realname: []const u8) !void {
@@ -496,6 +496,14 @@ const Client = struct {
         Invalid_CR,
     };
 
+    const AcceptParamError = error{MissingParameter};
+    const CheckRegisteredError = error{NotRegistered};
+
+    const InputError = error{
+        EndOfFile,
+        Quit,
+    };
+
     /// User definition.
     _user: User,
 
@@ -574,48 +582,79 @@ const Client = struct {
         warn("{}: " ++ fmt, .{self._addr} ++ args);
     }
 
-    fn _acceptParamMax(self: *Client, lexer: *Lexer, param: []const u8, maxlen: usize) ![]const u8 {
+    fn _acceptParam(
+        self: *Client,
+        lexer: *Lexer,
+        command: []const u8,
+        requirement: enum { Mandatory, Optional, Silent },
+    ) AcceptParamError![]const u8 {
         const begin = lexer.getCurPos();
         const res = lexer.readParam();
-        if (res.len == 0) {
-            self._warn("Position '{}', expected parameter '{}'.\n", .{ begin + 1, param });
-            return error.NeedsMoreParams;
+        if (res.len != 0) {
+            return res;
         }
-        if (res.len > maxlen) {
-            self._warn(
-                "Position '{}', parameter '{}' is too long (maximum: '{}', actual: '{}').\n",
-                .{ begin + 1, param, maxlen, res.len },
+
+        if (requirement == .Mandatory) {
+            // Send ERR_NEEDMOREPARAMS.
+            var ec: bool = undefined;
+            self._sendMessage(
+                &ec,
+                ":{} 461 {} {} :Not enough parameters",
+                .{
+                    self._user._server.getHostName(),
+                    CE(self._user.getNickName(), &ec),
+                    CE(command, &ec),
+                },
             );
-            // IRC has no error reply for too long parameters, so cut-off the value.
-            return res[0..maxlen];
         }
-        return res;
+        return AcceptParamError.MissingParameter;
     }
 
-    fn _acceptParam(self: *Client, lexer: *Lexer, param: []const u8) ![]const u8 {
-        return self._acceptParamMax(lexer, param, math.maxInt(usize));
+    fn _acceptParamOrDefault(
+        self: *Client,
+        lexer: *Lexer,
+        command: []const u8,
+        default: []const u8,
+    ) []const u8 {
+        return self._acceptParam(lexer, command, .Optional) catch |err| {
+            switch (err) {
+                AcceptParamError.MissingParameter => {
+                    return default;
+                },
+            }
+        };
     }
 
     /// Process the NICK command.
     /// Parameters: <nickname>
     fn _processCommand_NICK(self: *Client, lexer: *Lexer) !void {
-        const nickname = self._acceptParamMax(lexer, "<nickname>", 9) catch |err| {
-            if (err == error.NeedsMoreParams) {
-                return error.NoNickNameGiven;
-            } else {
-                return err;
+        const nickname = self._acceptParam(lexer, "NICK", .Silent) catch |err| {
+            switch (err) {
+                AcceptParamError.MissingParameter => {
+                    // Send ERR_NONICKNAMEGIVEN.
+                    var ec: bool = undefined;
+                    self._sendMessage(
+                        &ec,
+                        ":{} 431 {} :No nickname given",
+                        .{ self._user._server.getHostName(), CE(self._user.getNickName(), &ec) },
+                    );
+                    return;
+                },
             }
         };
-        const is_first_nickname = self._user._nickname == null;
 
-        // TODO Report an error back to the client.
-        try self._user._nick(nickname);
-
-        // TODO
+        // TODO Check for the following errors:
         // ERR_ERRONEUSNICKNAME
         // ERR_NICKNAMEINUSE
 
         // TODO Check there no more unexpected parameters.
+
+        const is_first_nickname = self._user._nickname == null;
+
+        self._user._nick(nickname) catch |err| {
+            self._sendMessage(null, "ERROR :{}", .{@errorName(err)});
+            return err;
+        };
 
         assert((self._user._username != null) == (self._user._realname != null));
         if (is_first_nickname and self._user._username != null) {
@@ -629,14 +668,20 @@ const Client = struct {
     fn _processCommand_USER(self: *Client, lexer: *Lexer) !void {
         assert((self._user._username != null) == (self._user._realname != null));
         if (self._user._username != null) {
-            // TODO Log an error.
-            return error.AlreadyRegistred;
+            // Send ERR_ALREADYREGISTRED.
+            var ec: bool = undefined;
+            self._sendMessage(
+                &ec,
+                ":{} 462 {} :You may not reregister",
+                .{ self._user._server.getHostName(), CE(self._user.getNickName(), &ec) },
+            );
+            return;
         }
 
-        const username = try self._acceptParam(lexer, "<username>");
-        const hostname = try self._acceptParam(lexer, "<hostname>");
-        const servername = try self._acceptParam(lexer, "<servername>");
-        const realname = try self._acceptParam(lexer, "<realname>");
+        const username = try self._acceptParam(lexer, "USER", .Mandatory);
+        const hostname = try self._acceptParam(lexer, "USER", .Mandatory);
+        const servername = try self._acceptParam(lexer, "USER", .Mandatory);
+        const realname = try self._acceptParam(lexer, "USER", .Mandatory);
         // TODO Check there no more unexpected parameters.
 
         // TODO Report an error back to the client.
@@ -654,8 +699,8 @@ const Client = struct {
         assert(self._user._username != null);
         assert(self._user._realname != null);
 
-        const nickname = self._user.getNickName();
         const hostname = self._user._server.getHostName();
+        const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
         // Send RPL_LUSERCLIENT.
@@ -687,7 +732,8 @@ const Client = struct {
     }
 
     /// Check whether the user has completed the initial registration and is fully joined. If not
-    /// then send ERR_NOTREGISTERED to the client and return error.NotRegistered.
+    /// then send ERR_NOTREGISTERED to the client and return
+    /// Client.CheckRegisteredError.NotRegistered.
     fn _checkRegistered(self: *Client) !void {
         assert((self._user._username != null) == (self._user._realname != null));
         if (self._user._nickname != null and self._user._username != null) {
@@ -698,29 +744,30 @@ const Client = struct {
             ":{} 451 * :You have not registered",
             .{self._user._server.getHostName()},
         );
-        return error.NotRegistered;
+        return Client.CheckRegisteredError.NotRegistered;
     }
 
     /// Process the QUIT command.
     /// Parameters: [<Quit message>]
     fn _processCommand_QUIT(self: *Client, lexer: *Lexer) !void {
-        // TODO Parse all parameters.
-        const quit_message = try self._acceptParam(lexer, "<quit message>");
+        const quit_message = self._acceptParamOrDefault(lexer, "QUIT", "Client quit");
 
+        var ec: bool = undefined;
+        self._sendMessage(&ec, "ERROR :{}", .{CE(quit_message, &ec)});
         self._user.quit(quit_message);
-        // TODO Send ERROR to the user.
-        return error.Quit;
+
+        return Client.InputError.Quit;
     }
 
     /// Process the LIST command.
     /// Parameters: [<channel>{,<channel>} [<server>]]
     fn _processCommand_LIST(self: *Client, lexer: *Lexer) !void {
-        try self._checkRegistered();
+        self._checkRegistered() catch return;
 
         // TODO Parse the parameters.
 
-        const nickname = self._user.getNickName();
         const hostname = self._user._server.getHostName();
+        const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
         // Send RPL_LISTSTART.
@@ -747,13 +794,13 @@ const Client = struct {
     /// Process the JOIN command.
     /// Parameters: <channel>{,<channel>} [<key>{,<key>}]
     fn _processCommand_JOIN(self: *Client, lexer: *Lexer) !void {
-        try self._checkRegistered();
+        self._checkRegistered() catch return;
 
         // TODO Parse all parameters.
-        const channel_name = try self._acceptParam(lexer, "<channel>");
+        const channel_name = try self._acceptParam(lexer, "JOIN", .Mandatory);
 
-        const nickname = self._user.getNickName();
         const hostname = self._user._server.getHostName();
+        const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
         const channel = self._user._server.lookupChannel(channel_name) orelse {
@@ -773,13 +820,13 @@ const Client = struct {
     /// RFC 1459: Parameters: <channel>{,<channel>}
     /// RFC 2812: Parameters: <channel> *( "," <channel> ) [ <Part Message> ]
     fn _processCommand_PART(self: *Client, lexer: *Lexer) !void {
-        try self._checkRegistered();
+        self._checkRegistered() catch return;
 
         // TODO Parse all parameters.
-        const channel_name = try self._acceptParam(lexer, "<channel>");
+        const channel_name = try self._acceptParam(lexer, "PART", .Mandatory);
 
-        const nickname = self._user.getNickName();
         const hostname = self._user._server.getHostName();
+        const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
         const channel = self._user._server.lookupChannel(channel_name) orelse {
@@ -807,13 +854,13 @@ const Client = struct {
     /// Process the WHO command.
     /// Parameters: [<name> [<o>]]
     fn _processCommand_WHO(self: *Client, lexer: *Lexer) !void {
-        try self._checkRegistered();
+        self._checkRegistered() catch return;
 
         // TODO Parse all parameters.
-        const name = try self._acceptParam(lexer, "<name>");
+        const name = try self._acceptParam(lexer, "WHO", .Mandatory);
 
-        const nickname = self._user.getNickName();
         const hostname = self._user._server.getHostName();
+        const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
         // TODO Report any error to the client.
@@ -824,23 +871,23 @@ const Client = struct {
     /// Process the PRIVMSG command.
     /// Parameters: <receiver>{,<receiver>} <text to be sent>
     fn _processCommand_PRIVMSG(self: *Client, lexer: *Lexer) !void {
-        try self._checkRegistered();
+        self._checkRegistered() catch return;
 
         // TODO Parse all parameters.
-        const receiver_name = try self._acceptParam(lexer, "<receiver>");
-        const text = try self._acceptParam(lexer, "<text to be sent>");
+        const receiver = try self._acceptParam(lexer, "PRIVMSG", .Mandatory);
+        const text = try self._acceptParam(lexer, "PRIVMSG", .Mandatory);
 
-        const nickname = self._user.getNickName();
         const hostname = self._user._server.getHostName();
+        const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
         // TODO Handle messages to users too.
-        const channel = self._user._server.lookupChannel(receiver_name) orelse {
+        const channel = self._user._server.lookupChannel(receiver) orelse {
             // Send ERR_NOSUCHNICK.
             self._sendMessage(
                 &ec,
                 ":{} 401 {} {} :No such nick/channel",
-                .{ hostname, CE(nickname, &ec), CE(receiver_name, &ec) },
+                .{ hostname, CE(nickname, &ec), CE(receiver, &ec) },
             );
             return;
         };
@@ -882,38 +929,41 @@ const Client = struct {
 
         // Parse the command name.
         const command = lexer.readWord();
-        // TODO Error handling.
-        var res: anyerror!void = {};
-        if (mem.eql(u8, command, "NICK")) {
-            res = self._processCommand_NICK(&lexer);
-        } else if (mem.eql(u8, command, "USER")) {
-            res = self._processCommand_USER(&lexer);
-        } else if (mem.eql(u8, command, "QUIT")) {
-            res = self._processCommand_QUIT(&lexer);
-        } else if (mem.eql(u8, command, "LIST")) {
-            res = self._processCommand_LIST(&lexer);
-        } else if (mem.eql(u8, command, "JOIN")) {
-            res = self._processCommand_JOIN(&lexer);
-        } else if (mem.eql(u8, command, "PART")) {
-            res = self._processCommand_PART(&lexer);
-        } else if (mem.eql(u8, command, "WHO")) {
-            res = self._processCommand_WHO(&lexer);
-        } else if (mem.eql(u8, command, "PRIVMSG")) {
-            res = self._processCommand_PRIVMSG(&lexer);
-        } else {
-            self._warn("Unrecognized command: {}\n", .{E(command)});
-        }
 
-        if (res) {} else |err| {
-            self._warn("Error: {}!\n", .{E(command)});
-            // TODO
+        // Process the command.
+        if (mem.eql(u8, command, "NICK")) {
+            try self._processCommand_NICK(&lexer);
+        } else if (mem.eql(u8, command, "USER")) {
+            try self._processCommand_USER(&lexer);
+        } else if (mem.eql(u8, command, "QUIT")) {
+            try self._processCommand_QUIT(&lexer);
+        } else if (mem.eql(u8, command, "LIST")) {
+            try self._processCommand_LIST(&lexer);
+        } else if (mem.eql(u8, command, "JOIN")) {
+            try self._processCommand_JOIN(&lexer);
+        } else if (mem.eql(u8, command, "PART")) {
+            try self._processCommand_PART(&lexer);
+        } else if (mem.eql(u8, command, "WHO")) {
+            try self._processCommand_WHO(&lexer);
+        } else if (mem.eql(u8, command, "PRIVMSG")) {
+            try self._processCommand_PRIVMSG(&lexer);
+        } else {
+            // Send ERR_UNKNOWNCOMMAND.
+            var ec: bool = undefined;
+            self._sendMessage(
+                &ec,
+                ":{} 421 {} {} :Unknown command",
+                .{
+                    self._user._server.getHostName(),
+                    CE(self._user.getNickName(), &ec),
+                    CE(command, &ec),
+                },
+            );
         }
-        return res;
     }
 
-    /// Read new input available on client's socket and process it. A number of bytes read is
-    /// returned. Value 0 indicates end of file.
-    fn processInput(self: *Client) !usize {
+    /// Read new input available on client's socket and process it.
+    fn processInput(self: *Client) !void {
         assert(self._input_received < self._input_buffer.len);
         var pos = self._input_received;
         const read = self._file_reader.read(self._input_buffer[pos..]) catch |err| {
@@ -926,8 +976,7 @@ const Client = struct {
         if (read == 0) {
             // End of file reached.
             self._info("Client disconnected.\n", .{});
-            // TODO Report any unhandled data.
-            return read;
+            return Client.InputError.EndOfFile;
         }
         self._input_received += read;
 
@@ -994,7 +1043,6 @@ const Client = struct {
                 self._input_received = 0;
             },
         }
-        return read;
     }
 
     fn _sendPrivMsg(self: *Client, from: []const u8, to: []const u8, text: []const u8) void {
@@ -1737,27 +1785,24 @@ const Server = struct {
 
     /// Process input from a client.
     fn _processInput(self: *Server, epfd: i32, client: *Client) void {
-        const res = client.processInput() catch 0;
-        if (res != 0) {
-            return;
-        }
+        client.processInput() catch {
+            // The client quit or a critical error occurred. Destroy the client now.
+            const clientfd = client.getFileDescriptor();
+            os.epoll_ctl(epfd, os.EPOLL_CTL_DEL, clientfd, undefined) catch unreachable;
 
-        // Destroy the client.
-        const clientfd = client.getFileDescriptor();
-        os.epoll_ctl(epfd, os.EPOLL_CTL_DEL, clientfd, undefined) catch unreachable;
+            const user = client.toUser();
+            if (user.hasNickName()) {
+                const user_iter = self._users.find(user.getNickName());
+                assert(user_iter.valid());
+                self._users.remove(user_iter);
+            }
 
-        const user = client.toUser();
-        if (user.hasNickName()) {
-            const user_iter = self._users.find(user.getNickName());
-            assert(user_iter.valid());
-            self._users.remove(user_iter);
-        }
+            const client_iter = self._clients.find(client);
+            assert(client_iter.valid());
+            self._clients.remove(client_iter);
 
-        const client_iter = self._clients.find(client);
-        assert(client_iter.valid());
-        self._clients.remove(client_iter);
-
-        client.destroy();
+            client.destroy();
+        };
     }
 
     /// Process a nickname change. Note that it is a caller's responsibility to make sure that this
