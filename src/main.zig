@@ -233,66 +233,29 @@ const User = struct {
     _server: *Server,
 
     /// Unique nick name (owned).
-    _nickname: []u8,
+    _nickname: ?[]u8,
 
     /// User name (owned).
-    _username: []u8,
+    _username: ?[]u8,
 
     /// Real name (owned).
-    _realname: []u8,
+    _realname: ?[]u8,
 
     /// Joined channels.
     _channels: ChannelSet,
 
     fn init(
         type_: Type,
-        nickname: []const u8,
-        username: []const u8,
-        realname: []const u8,
         server: *Server,
-        init_prefix: anytype,
-    ) !User {
+    ) User {
         const allocator = server.getAllocator();
-
-        // Make a copy of the nickname string.
-        const nickname_copy = allocator.alloc(u8, nickname.len) catch |err| {
-            warn(
-                "{}: Failed to allocate a nickname storage with size of '{}' bytes: {}.\n",
-                .{ init_prefix, nickname.len, @errorName(err) },
-            );
-            return err;
-        };
-        errdefer allocator.free(nickname_copy);
-        mem.copy(u8, nickname_copy, nickname);
-
-        // Make a copy of the username string.
-        const username_copy = allocator.alloc(u8, username.len) catch |err| {
-            warn(
-                "{}: Failed to allocate a username storage with size of '{}' bytes: {}.\n",
-                .{ init_prefix, username.len, @errorName(err) },
-            );
-            return err;
-        };
-        errdefer allocator.free(username_copy);
-        mem.copy(u8, username_copy, username);
-
-        // Make a copy of the realname string.
-        const realname_copy = allocator.alloc(u8, realname.len) catch |err| {
-            warn(
-                "{}: Failed to allocate a realname storage with size of '{}' bytes: {}.\n",
-                .{ init_prefix, realname.len, @errorName(err) },
-            );
-            return err;
-        };
-        errdefer allocator.free(realname_copy);
-        mem.copy(u8, realname_copy, realname);
 
         return User{
             ._type = type_,
             ._server = server,
-            ._nickname = nickname_copy,
-            ._username = username_copy,
-            ._realname = realname_copy,
+            ._nickname = null,
+            ._username = null,
+            ._realname = null,
             ._channels = ChannelSet.init(allocator),
         };
     }
@@ -304,9 +267,15 @@ const User = struct {
         self._channels.deinit();
 
         const allocator = self._server.getAllocator();
-        allocator.free(self._nickname);
-        allocator.free(self._username);
-        allocator.free(self._realname);
+        if (self._nickname != null) {
+            allocator.free(self._nickname.?);
+        }
+        if (self._username != null) {
+            allocator.free(self._username.?);
+        }
+        if (self._realname != null) {
+            allocator.free(self._realname.?);
+        }
     }
 
     /// Quit the server.
@@ -344,7 +313,7 @@ const User = struct {
             }
 
             // Inform the client about the quit.
-            client._sendMessage(&ec, "{} QUIT :{}", .{ CE(self._nickname, &ec), quit_message });
+            client._sendMessage(&ec, "{} QUIT :{}", .{ CE(self._nickname.?, &ec), quit_message });
         }
 
         // Quit all joined channels.
@@ -357,10 +326,12 @@ const User = struct {
     }
 
     fn getNickName(self: *const User) []const u8 {
-        return self._nickname;
+        return if (self._nickname != null) self._nickname.? else "<nickname-pending>";
     }
 
-    fn setNickName(self: *User, nickname: []const u8) !void {
+    /// Set a new nickname. Note that it is caller's responsibility to make sure that this name does
+    /// not duplicate a nickname of another user on the server.
+    fn _nick(self: *User, nickname: []const u8) !void {
         const allocator = self._server.getAllocator();
 
         // Make a copy of the nickname string.
@@ -374,20 +345,24 @@ const User = struct {
         errdefer allocator.free(nickname_copy);
         mem.copy(u8, nickname_copy, nickname);
 
+        // TODO Register to the server.
+
         // Set the new nickname.
-        allocator.free(self._nickname);
+        if (self._nickname != null) {
+            allocator.free(self._nickname.?);
+        }
         self._nickname = nickname_copy;
     }
 
     fn getUserName(self: *const User) []const u8 {
-        return self._username;
+        return if (self._username != null) self._username.? else "<username-pending>";
     }
 
     fn getRealName(self: *const User) []const u8 {
-        return self._realname;
+        return if (self._realname != null) self._realname.? else "<realname-pending>";
     }
 
-    fn setUserAndRealName(self: *User, username: []const u8, realname: []const u8) !void {
+    fn _user(self: *User, username: []const u8, realname: []const u8) !void {
         const allocator = self._server.getAllocator();
 
         // Make a copy of the username string.
@@ -413,10 +388,14 @@ const User = struct {
         mem.copy(u8, realname_copy, realname);
 
         // Set the new username and realname.
-        allocator.free(self._username);
+        if (self._username != null) {
+            allocator.free(self._username.?);
+        }
         self._username = username_copy;
 
-        allocator.free(self._realname);
+        if (self._realname != null) {
+            allocator.free(self._realname.?);
+        }
         self._realname = realname_copy;
     }
 
@@ -504,12 +483,6 @@ const Client = struct {
         Invalid,
         Invalid_CR,
     };
-    const RegistrationState = enum {
-        Init,
-        HasUSER,
-        HasNICK,
-        Complete,
-    };
 
     /// User definition.
     _user: User,
@@ -523,10 +496,6 @@ const Client = struct {
     _input_state: InputState,
     _input_buffer: [512]u8,
     _input_received: usize,
-
-    /// Enum indicating whether the initial USER and NICK pair was already received and the client
-    /// is fully joined.
-    _registration_state: RegistrationState,
 
     /// Create a new client instance, which takes ownership for the passed client descriptor. If
     /// constructing the client fails, the file descriptor gets closed.
@@ -542,14 +511,7 @@ const Client = struct {
         };
         const file = fs.File{ .handle = fd };
         client.* = Client{
-            ._user = try User.init(
-                .Client,
-                "<nickname-pending>",
-                "<username-pending>",
-                "<realname-pending>",
-                server,
-                addr,
-            ),
+            ._user = User.init(.Client, server),
             ._fd = fd,
             ._addr = addr,
             ._file_writer = file.writer(),
@@ -557,7 +519,6 @@ const Client = struct {
             ._input_state = .Normal,
             ._input_buffer = undefined,
             ._input_received = 0,
-            ._registration_state = .Init,
         };
         return client;
     }
@@ -622,7 +583,8 @@ const Client = struct {
     /// Process the USER command.
     /// Parameters: <username> <hostname> <servername> <realname>
     fn _processCommand_USER(self: *Client, lexer: *Lexer) !void {
-        if (self._registration_state == .HasUSER or self._registration_state == .Complete) {
+        assert((self._user._username != null) == (self._user._realname != null));
+        if (self._user._username != null) {
             // TODO Log an error.
             return error.AlreadyRegistred;
         }
@@ -634,22 +596,11 @@ const Client = struct {
         // TODO Check there no more unexpected parameters.
 
         // TODO Report an error back to the client.
-        try self._user.setUserAndRealName(username, realname);
+        try self._user._user(username, realname);
 
-        // Progress the registration state.
-        switch (self._registration_state) {
-            .Init => {
-                self._registration_state = .HasUSER;
-            },
-            .HasNICK => {
-                self._registration_state = .Complete;
-                // Complete the join if the initial USER and NICK pair was already received.
-                self._completeRegistration();
-            },
-            .HasUSER, .Complete => {
-                // States .HasUSER or .Complete are rejected earlier.
-                unreachable;
-            },
+        if (self._user._nickname != null) {
+            // Complete the join if the initial NICK and USER pair was received.
+            self._completeRegistration();
         }
     }
 
@@ -663,8 +614,10 @@ const Client = struct {
                 return err;
             }
         };
+        const is_first_nickname = self._user._nickname == null;
+
         // TODO Report an error back to the client.
-        try self._user.setNickName(nickname);
+        try self._user._nick(nickname);
 
         // TODO
         // ERR_ERRONEUSNICKNAME
@@ -672,26 +625,18 @@ const Client = struct {
 
         // TODO Check there no more unexpected parameters.
 
-        // Progress the registration state.
-        switch (self._registration_state) {
-            .Init => {
-                self._registration_state = .HasNICK;
-            },
-            .HasUSER => {
-                self._registration_state = .Complete;
-                // Complete the join if the initial USER and NICK pair was already received.
-                self._completeRegistration();
-            },
-            .HasNICK, .Complete => {
-                // Do nothing for .HasNICK or .Complete. The NICK command is in this case not a part
-                // of the initial registration process.
-            },
+        assert((self._user._username != null) == (self._user._realname != null));
+        if (is_first_nickname and self._user._username != null) {
+            // Complete the join if the initial NICK and USER pair was received.
+            self._completeRegistration();
         }
     }
 
     /// Complete the client join after the initial USER and NICK pair is received.
     fn _completeRegistration(self: *Client) void {
-        assert(self._registration_state == .Complete);
+        assert(self._user._nickname != null);
+        assert(self._user._username != null);
+        assert(self._user._realname != null);
 
         const nickname = self._user.getNickName();
         const hostname = self._user._server.getHostName();
@@ -728,7 +673,8 @@ const Client = struct {
     /// Check whether the user has completed the initial registration and is fully joined. If not
     /// then send ERR_NOTREGISTERED to the client and return error.NotRegistered.
     fn _checkRegistered(self: *Client) !void {
-        if (self._registration_state == .Complete) {
+        assert((self._user._username != null) == (self._user._realname != null));
+        if (self._user._nickname != null and self._user._username != null) {
             return;
         }
         self._sendMessage(
@@ -1085,14 +1031,7 @@ const LocalBot = struct {
             return err;
         };
         local_bot.* = LocalBot{
-            ._user = try User.init(
-                .LocalBot,
-                nickname,
-                nickname,
-                nickname,
-                server,
-                E(nickname),
-            ),
+            ._user = User.init(.LocalBot, server),
             ._channels_target = channels_target,
             ._channels_leave_rate = channels_leave_rate,
             ._message_rate = message_rate,
@@ -1120,13 +1059,21 @@ const LocalBot = struct {
     }
 
     fn _info(self: *const LocalBot, comptime fmt: []const u8, args: anytype) void {
-        const nickname = E(self._user._nickname);
+        const nickname = E(self._user.getNickName());
         info("{}: " ++ fmt, .{nickname} ++ args);
     }
 
     fn _warn(self: *const LocalBot, comptime fmt: []const u8, args: anytype) void {
-        const nickname = E(self._user._nickname);
+        const nickname = E(self._user.getNickName());
         warn("{}: " ++ fmt, .{nickname} ++ args);
+    }
+
+    fn register_NICK(self: *LocalBot, nickname: []const u8) !void {
+        return self._user._nick(nickname);
+    }
+
+    fn register_USER(self: *LocalBot, username: []const u8, realname: []const u8) !void {
+        return self._user._user(username, realname);
     }
 
     /// Join the bot's desired number of channels.
@@ -1843,6 +1790,10 @@ const Server = struct {
             return err;
         };
         errdefer self._local_bots.remove(local_bot_iter);
+
+        // Perform the registration process.
+        try local_bot.register_NICK(nickname);
+        try local_bot.register_USER(nickname, nickname);
 
         // Run the initial tick.
         local_bot.tick();
