@@ -731,7 +731,7 @@ const Client = struct {
         const channels = self._user._server.getChannels();
         var channel_iter = channels.iterator();
         while (channel_iter.next()) |channel_node| {
-            const channel = channel_node.key();
+            const channel = channel_node.value();
             const name = channel.getName();
             const member_count = channel.getMemberCount();
             self._sendMessage(
@@ -1107,7 +1107,7 @@ const LocalBot = struct {
 
         var server_channel_iter = server_channels.iterator();
         while (server_channel_iter.next()) |server_channel_node| {
-            const server_channel = server_channel_node.key();
+            const server_channel = server_channel_node.value();
 
             // Skip this channel if the bot is already in it.
             const user_channel_iter = self._user._channels.find(server_channel);
@@ -1457,12 +1457,8 @@ const Server = struct {
     /// (nicknames) are owned by respective User instances.
     _users: UserNameSet,
 
-    /// Channels (owned).
-    _channels: ChannelSet,
-
-    /// Channels organized for fast lookup by name. Keys (names) are owned by respective Channel
-    /// instances.
-    _channels_by_name: ChannelNameSet,
+    /// All channels (owned). Keys (names) are owned by respective Channel instances.
+    _channels: ChannelNameSet,
 
     fn create(
         address: []const u8,
@@ -1530,8 +1526,7 @@ const Server = struct {
             ._clients = ClientSet.init(allocator),
             ._local_bots = LocalBotSet.init(allocator),
             ._users = UserNameSet.init(allocator),
-            ._channels = ChannelSet.init(allocator),
-            ._channels_by_name = ChannelNameSet.init(allocator),
+            ._channels = ChannelNameSet.init(allocator),
         };
         return server;
     }
@@ -1558,11 +1553,10 @@ const Server = struct {
         // Destroy all channels.
         var channel_iter = self._channels.iterator();
         while (channel_iter.next()) |channel_node| {
-            const channel = channel_node.key();
+            const channel = channel_node.value();
             channel.destroy();
         }
         self._channels.deinit();
-        self._channels_by_name.deinit();
 
         self._allocator.free(self._host);
         self._allocator.free(self._port);
@@ -1592,7 +1586,7 @@ const Server = struct {
         return &self._clients;
     }
 
-    fn getChannels(self: *Server) *const ChannelSet {
+    fn getChannels(self: *Server) *const ChannelNameSet {
         return &self._channels;
     }
 
@@ -1795,18 +1789,9 @@ const Server = struct {
         const channel = try Channel.create(name, self);
         errdefer channel.destroy();
 
-        const channel_iter = self._channels.insert(channel, {}) catch |err| {
+        const channel_iter = self._channels.insert(channel.getName(), channel) catch |err| {
             warn(
                 "Failed to insert channel '{}' in the main channel set: {}.\n",
-                .{ E(name), @errorName(err) },
-            );
-            return err;
-        };
-        errdefer self._channels.remove(channel_iter);
-
-        _ = self._channels_by_name.insert(channel.getName(), channel) catch |err| {
-            warn(
-                "Failed to insert channel '{}' in the by-name channel set: {}.\n",
                 .{ E(name), @errorName(err) },
             );
             return err;
@@ -1815,7 +1800,7 @@ const Server = struct {
 
     /// Find a channel by name.
     fn lookupChannel(self: *Server, name: []const u8) ?*Channel {
-        const channel_iter = self._channels_by_name.find(name);
+        const channel_iter = self._channels.find(name);
         return if (channel_iter.valid()) channel_iter.value() else null;
     }
 
