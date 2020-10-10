@@ -329,8 +329,12 @@ const User = struct {
         return if (self._nickname != null) self._nickname.? else "<nickname-pending>";
     }
 
-    /// Set a new nickname. Note that it is caller's responsibility to make sure that this name does
-    /// not duplicate a nickname of another user on the server.
+    fn hasNickName(self: *const User) bool {
+        return self._nickname != null;
+    }
+
+    /// Set a new nickname. Note that it is a caller's responsibility to make sure that this name
+    /// does not duplicate a nickname of another user on the server.
     fn _nick(self: *User, nickname: []const u8) !void {
         const allocator = self._server.getAllocator();
 
@@ -345,7 +349,14 @@ const User = struct {
         errdefer allocator.free(nickname_copy);
         mem.copy(u8, nickname_copy, nickname);
 
-        // TODO Register to the server.
+        // Tell the server about the new nick name.
+        // TODO Fix passing of the self._nickname parameter which is a workaround for a bug in the
+        // Zig compiler.
+        try self._server.recordNickNameChange(
+            self,
+            if (self._nickname != null) self._nickname.? else null,
+            nickname_copy,
+        );
 
         // Set the new nickname.
         if (self._nickname != null) {
@@ -475,6 +486,8 @@ const User = struct {
 
 const UserSet = avl.Map(*User, void, avl.getLessThanFn(*User));
 
+const UserNameSet = avl.Map([]const u8, *User, avl.getLessThanFn([]const u8));
+
 /// Remote client.
 const Client = struct {
     const InputState = enum {
@@ -543,6 +556,10 @@ const Client = struct {
     fn fromConstUser(user: *const User) *const Client {
         assert(user._type == .Client);
         return @fieldParentPtr(Client, "_user", user);
+    }
+
+    fn toUser(self: *Client) *User {
+        return &self._user;
     }
 
     /// Get the client's file descriptor.
@@ -1430,16 +1447,21 @@ const Server = struct {
     /// Port number (owned).
     _port: []const u8,
 
-    /// Remote clients (owned).
+    /// All remote clients (owned).
     _clients: ClientSet,
 
-    /// Local bots (owned).
+    /// All local bots (owned).
     _local_bots: LocalBotSet,
+
+    /// Users with a valid name (owned). This is a subset of _clients and _local_bots. Keys
+    /// (nicknames) are owned by respective User instances.
+    _users: UserNameSet,
 
     /// Channels (owned).
     _channels: ChannelSet,
 
-    /// Channels organized for fast lookup by name.
+    /// Channels organized for fast lookup by name. Keys (names) are owned by respective Channel
+    /// instances.
     _channels_by_name: ChannelNameSet,
 
     fn create(
@@ -1507,6 +1529,7 @@ const Server = struct {
             ._port = port_copy,
             ._clients = ClientSet.init(allocator),
             ._local_bots = LocalBotSet.init(allocator),
+            ._users = UserNameSet.init(allocator),
             ._channels = ChannelSet.init(allocator),
             ._channels_by_name = ChannelNameSet.init(allocator),
         };
@@ -1529,6 +1552,8 @@ const Server = struct {
             local_bot.destroy();
         }
         self._local_bots.deinit();
+
+        self._users.deinit();
 
         // Destroy all channels.
         var channel_iter = self._channels.iterator();
@@ -1728,10 +1753,41 @@ const Server = struct {
         const clientfd = client.getFileDescriptor();
         os.epoll_ctl(epfd, os.EPOLL_CTL_DEL, clientfd, undefined) catch unreachable;
 
+        const user = client.toUser();
+        if (user.hasNickName()) {
+            const user_iter = self._users.find(user.getNickName());
+            assert(user_iter.valid());
+            self._users.remove(user_iter);
+        }
+
         const client_iter = self._clients.find(client);
         assert(client_iter.valid());
         self._clients.remove(client_iter);
+
         client.destroy();
+    }
+
+    /// Process a nickname change. Note that it is a caller's responsibility to make sure that this
+    /// name does not duplicate a nickname of another user on the server.
+    fn recordNickNameChange(
+        self: *Server,
+        user: *User,
+        old_nickname: ?[]const u8,
+        new_nickname: []const u8,
+    ) !void {
+        _ = self._users.insert(new_nickname, user) catch |err| {
+            warn(
+                "Failed to insert user '{}' in the named user set: {}.\n",
+                .{ E(new_nickname), @errorName(err) },
+            );
+            return err;
+        };
+
+        if (old_nickname != null) {
+            const user_iter = self._users.find(old_nickname.?);
+            assert(user_iter.valid());
+            self._users.remove(user_iter);
+        }
     }
 
     /// Create a new channel with the given name.
