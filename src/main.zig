@@ -1163,10 +1163,23 @@ const LocalBot = struct {
         }
     }
 
-    fn _tick_leaveChannels(self: *LocalBot) void {
-        // TODO Handle channels_leave_rate.
+    /// Process joined channels and leave them randomly at a specific rate.
+    fn _tick_partChannels(self: *LocalBot) void {
+        const rng = self._user._server.getRNG();
+
+        var channel_iter = self._user._channels.iterator();
+        _ = channel_iter.next();
+        while (channel_iter.valid()) {
+            const channel = channel_iter.key();
+            _ = channel_iter.next();
+
+            if (rng.float(f32) < self._channels_leave_rate) {
+                self._user._partChannel(channel);
+            }
+        }
     }
 
+    /// Send random messages to joined channels at a specific rate.
     fn _tick_sendMessages(self: *LocalBot) void {
         const rng = self._user._server.getRNG();
         const word_bank = self._user._server.getWordBank();
@@ -1203,9 +1216,10 @@ const LocalBot = struct {
         }
     }
 
+    /// Run the bot's intelligence.
     fn tick(self: *LocalBot) void {
         self._tick_joinChannels();
-        self._tick_leaveChannels();
+        self._tick_partChannels();
         self._tick_sendMessages();
     }
 };
