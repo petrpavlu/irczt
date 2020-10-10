@@ -597,30 +597,6 @@ const Client = struct {
         return self._acceptParamMax(lexer, param, math.maxInt(usize));
     }
 
-    /// Process the USER command.
-    /// Parameters: <username> <hostname> <servername> <realname>
-    fn _processCommand_USER(self: *Client, lexer: *Lexer) !void {
-        assert((self._user._username != null) == (self._user._realname != null));
-        if (self._user._username != null) {
-            // TODO Log an error.
-            return error.AlreadyRegistred;
-        }
-
-        const username = try self._acceptParam(lexer, "<username>");
-        const hostname = try self._acceptParam(lexer, "<hostname>");
-        const servername = try self._acceptParam(lexer, "<servername>");
-        const realname = try self._acceptParam(lexer, "<realname>");
-        // TODO Check there no more unexpected parameters.
-
-        // TODO Report an error back to the client.
-        try self._user._user(username, realname);
-
-        if (self._user._nickname != null) {
-            // Complete the join if the initial NICK and USER pair was received.
-            self._completeRegistration();
-        }
-    }
-
     /// Process the NICK command.
     /// Parameters: <nickname>
     fn _processCommand_NICK(self: *Client, lexer: *Lexer) !void {
@@ -644,6 +620,30 @@ const Client = struct {
 
         assert((self._user._username != null) == (self._user._realname != null));
         if (is_first_nickname and self._user._username != null) {
+            // Complete the join if the initial NICK and USER pair was received.
+            self._completeRegistration();
+        }
+    }
+
+    /// Process the USER command.
+    /// Parameters: <username> <hostname> <servername> <realname>
+    fn _processCommand_USER(self: *Client, lexer: *Lexer) !void {
+        assert((self._user._username != null) == (self._user._realname != null));
+        if (self._user._username != null) {
+            // TODO Log an error.
+            return error.AlreadyRegistred;
+        }
+
+        const username = try self._acceptParam(lexer, "<username>");
+        const hostname = try self._acceptParam(lexer, "<hostname>");
+        const servername = try self._acceptParam(lexer, "<servername>");
+        const realname = try self._acceptParam(lexer, "<realname>");
+        // TODO Check there no more unexpected parameters.
+
+        // TODO Report an error back to the client.
+        try self._user._user(username, realname);
+
+        if (self._user._nickname != null) {
             // Complete the join if the initial NICK and USER pair was received.
             self._completeRegistration();
         }
@@ -885,10 +885,10 @@ const Client = struct {
         const command = lexer.readWord();
         // TODO Error handling.
         var res: anyerror!void = {};
-        if (mem.eql(u8, command, "USER")) {
-            res = self._processCommand_USER(&lexer);
-        } else if (mem.eql(u8, command, "NICK")) {
+        if (mem.eql(u8, command, "NICK")) {
             res = self._processCommand_NICK(&lexer);
+        } else if (mem.eql(u8, command, "USER")) {
+            res = self._processCommand_USER(&lexer);
         } else if (mem.eql(u8, command, "QUIT")) {
             res = self._processCommand_QUIT(&lexer);
         } else if (mem.eql(u8, command, "LIST")) {
