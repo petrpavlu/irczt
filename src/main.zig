@@ -287,18 +287,17 @@ const User = struct {
 
         var ec: bool = undefined;
 
-        // Process clients only, local bots do not need the quit information.
-        const clients = self._server.getClients();
-        var client_iterator = clients.iterator();
-        while (client_iterator.next()) |client_node| {
-            const client = client_node.key();
+        const users = self._server.getUsers();
+        var user_iterator = users.iterator();
+        while (user_iterator.next()) |user_node| {
+            const user = user_node.value();
 
-            // Skip if this is the exiting user.
-            if (&client._user == self) {
+            // Skip if this is the current user.
+            if (user == self) {
                 continue;
             }
 
-            // Check if the client is in any joined channel.
+            // Check if the user is in any joined channel.
             var found = false;
             var channel_iter = self._channels.iterator();
             while (channel_iter.next()) |channel_node| {
@@ -312,8 +311,8 @@ const User = struct {
                 continue;
             }
 
-            // Inform the client about the quit.
-            client._sendMessage(&ec, "{} QUIT :{}", .{ CE(self._nickname.?, &ec), quit_message });
+            // Inform the user about the quit.
+            user.sendMessage(&ec, "{} QUIT :{}", .{ CE(self._nickname.?, &ec), quit_message });
         }
 
         // Quit all joined channels.
@@ -1582,8 +1581,8 @@ const Server = struct {
         return self._host;
     }
 
-    fn getClients(self: *Server) *const ClientSet {
-        return &self._clients;
+    fn getUsers(self: *Server) *const UserNameSet {
+        return &self._users;
     }
 
     fn getChannels(self: *Server) *const ChannelNameSet {
