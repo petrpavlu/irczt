@@ -20,11 +20,14 @@ pub const word_bank = [_][]const u8{
 
 /// Pre-defined channels.
 pub const channels = [_][]const u8{
+    "#chess",
     "#future",
+    "#games",
     "#movies",
     "#music",
     "#nature",
     "#news",
+    "#study",
 };
 
 /// Artificial local users.
@@ -95,7 +98,7 @@ pub const bot_channels_target = Range(u8){ .min = 2, .max = 5 };
 pub const bot_channels_leave_rate = Range(f32){ .min = 0.0005, .max = 0.0010 };
 
 /// Number of sent messages per each tick in every joined channel.
-pub const bot_message_rate = Range(f32){ .min = 0.001, .max = 0.005 };
+pub const bot_message_rate = Range(f32){ .min = 0.002, .max = 0.010 };
 
 /// Average message length.
 pub const bot_message_length = Range(u8){ .min = 10, .max = 20 };
