@@ -543,7 +543,7 @@ const Client = struct {
         const file = fs.File{ .handle = fd };
         client.* = Client{
             ._user = try User.init(
-                User.Type.Client,
+                .Client,
                 "<nickname-pending>",
                 "<username-pending>",
                 "<realname-pending>",
@@ -554,10 +554,10 @@ const Client = struct {
             ._addr = addr,
             ._file_writer = file.writer(),
             ._file_reader = file.reader(),
-            ._input_state = Client.InputState.Normal,
+            ._input_state = .Normal,
             ._input_buffer = undefined,
             ._input_received = 0,
-            ._registration_state = RegistrationState.Init,
+            ._registration_state = .Init,
         };
         return client;
     }
@@ -575,12 +575,12 @@ const Client = struct {
     }
 
     fn fromUser(user: *User) *Client {
-        assert(user._type == User.Type.Client);
+        assert(user._type == .Client);
         return @fieldParentPtr(Client, "_user", user);
     }
 
     fn fromConstUser(user: *const User) *const Client {
-        assert(user._type == User.Type.Client);
+        assert(user._type == .Client);
         return @fieldParentPtr(Client, "_user", user);
     }
 
@@ -973,51 +973,51 @@ const Client = struct {
         while (pos < self._input_received) : (pos += 1) {
             const char = self._input_buffer[pos];
             switch (self._input_state) {
-                Client.InputState.Normal => {
+                .Normal => {
                     if (char == '\r') {
-                        self._input_state = Client.InputState.Normal_CR;
+                        self._input_state = .Normal_CR;
                     }
                     // TODO Check for invalid chars.
                 },
-                Client.InputState.Normal_CR => {
+                .Normal_CR => {
                     if (char == '\n') {
                         const res = self._processMessage(self._input_buffer[message_begin .. pos - 1]);
-                        self._input_state = Client.InputState.Normal;
+                        self._input_state = .Normal;
                         message_begin = pos + 1;
                         // TODO Keep the client buffers in consistent state even on error.
                         if (res) {} else |err| return err;
                     } else {
                         // TODO Print an error message.
-                        self._input_state = Client.InputState.Invalid;
+                        self._input_state = .Invalid;
                     }
                 },
-                Client.InputState.Invalid => {
+                .Invalid => {
                     if (char == '\r') {
-                        self._input_state = Client.InputState.Invalid_CR;
+                        self._input_state = .Invalid_CR;
                     }
                 },
-                Client.InputState.Invalid_CR => {
+                .Invalid_CR => {
                     if (char == '\n') {
-                        self._input_state = Client.InputState.Normal;
+                        self._input_state = .Normal;
                         message_begin = pos + 1;
                     } else {
-                        self._input_state = Client.InputState.Invalid;
+                        self._input_state = .Invalid;
                     }
                 },
             }
         }
 
         switch (self._input_state) {
-            Client.InputState.Normal, Client.InputState.Normal_CR => {
+            .Normal, .Normal_CR => {
                 if (message_begin >= self._input_received) {
                     assert(message_begin == self._input_received);
                     self._input_received = 0;
                 } else if (message_begin == 0) {
                     // TODO Message overflow.
-                    if (self._input_state == Client.InputState.Normal) {
-                        self._input_state = Client.InputState.Invalid;
+                    if (self._input_state == .Normal) {
+                        self._input_state = .Invalid;
                     } else {
-                        self._input_state = Client.InputState.Invalid_CR;
+                        self._input_state = .Invalid_CR;
                     }
                 } else {
                     mem.copy(
@@ -1028,7 +1028,7 @@ const Client = struct {
                     self._input_received -= message_begin;
                 }
             },
-            Client.InputState.Invalid, Client.InputState.Invalid_CR => {
+            .Invalid, .Invalid_CR => {
                 self._input_received = 0;
             },
         }
@@ -1086,7 +1086,7 @@ const LocalBot = struct {
         };
         local_bot.* = LocalBot{
             ._user = try User.init(
-                User.Type.LocalBot,
+                .LocalBot,
                 nickname,
                 nickname,
                 nickname,
@@ -1110,12 +1110,12 @@ const LocalBot = struct {
     }
 
     fn fromUser(user: *User) *LocalBot {
-        assert(user._type == User.Type.LocalBot);
+        assert(user._type == .LocalBot);
         return @fieldParentPtr(LocalBot, "_user", user);
     }
 
     fn fromConstUser(user: *const User) *const LocalBot {
-        assert(user._type == User.Type.LocalBot);
+        assert(user._type == .LocalBot);
         return @fieldParentPtr(LocalBot, "_user", user);
     }
 
