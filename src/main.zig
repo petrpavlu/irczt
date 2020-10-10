@@ -1721,7 +1721,7 @@ const Server = struct {
 
         const client_iter = self._clients.insert(client, {}) catch |err| {
             warn(
-                "{}: Failed to insert the client in the main client set: {}.\n",
+                "Failed to insert client '{}' in the main client set: {}.\n",
                 .{ client_addr, @errorName(err) },
             );
             return;
@@ -1735,8 +1735,8 @@ const Server = struct {
         };
         os.epoll_ctl(epfd, os.EPOLL_CTL_ADD, clientfd, &clientfd_event) catch |err| {
             warn(
-                "{}: Failed to add the client socket (fd '{}') to the epoll instance: {}.\n",
-                .{ client_addr, clientfd, @errorName(err) },
+                "Failed to add socket (fd '{}') of client '{}' to the epoll instance: {}.\n",
+                .{ clientfd, client_addr, @errorName(err) },
             );
             return;
         };
@@ -1797,7 +1797,7 @@ const Server = struct {
 
         const channel_iter = self._channels.insert(channel, {}) catch |err| {
             warn(
-                "{}: Failed to insert the channel in the main channel set: {}.\n",
+                "Failed to insert channel '{}' in the main channel set: {}.\n",
                 .{ E(name), @errorName(err) },
             );
             return err;
@@ -1806,7 +1806,7 @@ const Server = struct {
 
         _ = self._channels_by_name.insert(channel.getName(), channel) catch |err| {
             warn(
-                "{}: Failed to insert the channel in the by-name channel set: {}.\n",
+                "Failed to insert channel '{}' in the by-name channel set: {}.\n",
                 .{ E(name), @errorName(err) },
             );
             return err;
@@ -1840,7 +1840,7 @@ const Server = struct {
 
         const local_bot_iter = self._local_bots.insert(local_bot, {}) catch |err| {
             warn(
-                "{}: Failed to insert the local bot in the main local bot set: {}.\n",
+                "Failed to insert local bot '{}' in the main local bot set: {}.\n",
                 .{ E(nickname), @errorName(err) },
             );
             return err;
