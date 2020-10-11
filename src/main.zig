@@ -628,30 +628,61 @@ const Client = struct {
     /// Process the NICK command.
     /// Parameters: <nickname>
     fn _processCommand_NICK(self: *Client, lexer: *Lexer) !void {
-        const nickname = self._acceptParam(lexer, "NICK", .Silent) catch |err| {
+        const hostname = self._user._server.getHostName();
+        const nickname = self._user.getNickName();
+        var ec: bool = undefined;
+
+        const new_nickname = self._acceptParam(lexer, "NICK", .Silent) catch |err| {
             switch (err) {
                 AcceptParamError.MissingParameter => {
                     // Send ERR_NONICKNAMEGIVEN.
-                    var ec: bool = undefined;
                     self._sendMessage(
                         &ec,
                         ":{} 431 {} :No nickname given",
-                        .{ self._user._server.getHostName(), CE(self._user.getNickName(), &ec) },
+                        .{ hostname, CE(nickname, &ec) },
                     );
                     return;
                 },
             }
         };
 
+        // Validate the nickname.
+        for (new_nickname) |char, i| {
+            // <letter>
+            if ((char >= 'a' and char <= 'z') or (char >= 'A' and char <= 'Z')) {
+                continue;
+            }
+
+            if (i != 0) {
+                // <number>
+                if (char >= '0' and char <= '9') {
+                    continue;
+                }
+                // <special>
+                if (char == '-' or char == '[' or char == ']' or char == '\\' or char == '`' or
+                    char == '^' or char == '{' or char == '}')
+                {
+                    continue;
+                }
+            }
+
+            // Send ERR_ERRONEUSNICKNAME.
+            self._sendMessage(
+                &ec,
+                ":{} 432 {} {} :Erroneus nickname",
+                .{ hostname, CE(nickname, &ec), CE(new_nickname, &ec) },
+            );
+            return;
+        }
+
         // TODO Check for the following errors:
-        // ERR_ERRONEUSNICKNAME
         // ERR_NICKNAMEINUSE
 
         // TODO Check there no more unexpected parameters.
 
         const is_first_nickname = self._user._nickname == null;
 
-        self._user._nick(nickname) catch |err| {
+        self._user._nick(new_nickname) catch |err| {
             self._sendMessage(null, "ERROR :{}", .{@errorName(err)});
             return err;
         };
