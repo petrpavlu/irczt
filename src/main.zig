@@ -646,6 +646,8 @@ const Client = struct {
             }
         };
 
+        // TODO Check there no more unexpected parameters.
+
         // Validate the nickname.
         for (new_nickname) |char, i| {
             // <letter>
@@ -675,10 +677,16 @@ const Client = struct {
             return;
         }
 
-        // TODO Check for the following errors:
-        // ERR_NICKNAMEINUSE
-
-        // TODO Check there no more unexpected parameters.
+        // Check that the nickname is not already in use.
+        if (self._user._server.lookupUser(new_nickname) != null) {
+            // Send ERR_NICKNAMEINUSE.
+            self._sendMessage(
+                &ec,
+                ":{} 433 {} {} :Nickname is already in use",
+                .{ hostname, CE(nickname, &ec), CE(new_nickname, &ec) },
+            );
+            return;
+        }
 
         const is_first_nickname = self._user._nickname == null;
 
@@ -1857,6 +1865,12 @@ const Server = struct {
             assert(user_iter.valid());
             self._users.remove(user_iter);
         }
+    }
+
+    /// Find a user by name.
+    fn lookupUser(self: *Server, name: []const u8) ?*User {
+        const user_iter = self._users.find(name);
+        return if (user_iter.valid()) user_iter.value() else null;
     }
 
     /// Create a new channel with the given name.
