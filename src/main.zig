@@ -288,7 +288,7 @@ const User = struct {
 
     fn deinit(self: *User) void {
         // Quit all channels.
-        self.quit("Client quit");
+        self._quit("Client quit");
         assert(self._channels.count() == 0);
         self._channels.deinit();
 
@@ -305,7 +305,7 @@ const User = struct {
     }
 
     /// Quit the server.
-    fn quit(self: *User, quit_message: []const u8) void {
+    fn _quit(self: *User, quit_message: []const u8) void {
         // Send a QUIT message to users in all joined channels.
         if (self._channels.count() == 0) {
             return;
@@ -842,7 +842,7 @@ const Client = struct {
 
         var ec: bool = undefined;
         self._sendMessage(&ec, "ERROR :{}", .{CE(quit_message, &ec)});
-        self._user.quit(quit_message);
+        self._user._quit(quit_message);
 
         return Client.InputError.Quit;
     }
