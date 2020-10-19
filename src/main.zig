@@ -328,7 +328,7 @@ const User = struct {
             var channel_iter = self._channels.iterator();
             while (channel_iter.next()) |channel_node| {
                 const channel = channel_node.key();
-                if (channel.hasMember(self)) {
+                if (channel.hasMember(user)) {
                     found = true;
                     break;
                 }
