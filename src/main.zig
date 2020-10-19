@@ -791,11 +791,11 @@ const Client = struct {
         var ec: bool = undefined;
 
         // Send RPL_LUSERCLIENT.
-        // TODO Fix user count.
+        const users = self._user._server.getUsers();
         self._sendMessage(
             &ec,
             ":{} 251 {} :There are {} users and 0 invisible on 1 servers",
-            .{ hostname, CE(nickname, &ec), 1 },
+            .{ hostname, CE(nickname, &ec), users.count() },
         );
 
         // Send motd.
