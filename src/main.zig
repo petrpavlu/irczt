@@ -195,30 +195,56 @@ const Lexer = struct {
         }
     }
 
-    /// Read one word from the message.
-    fn readWord(self: *Lexer) []const u8 {
-        const begin = self._pos;
-
-        var end = begin;
-        while (self.getCurChar() != '\x00' and self.getCurChar() != ' ') : (end += 1) {
-            self.nextChar();
+    /// Read all space characters at the current position if a separator is valid at this point.
+    fn _processSpace(self: *Lexer) void {
+        if (self._pos == 0) {
+            return;
         }
 
         while (self.getCurChar() == ' ') {
+            self.nextChar();
+        }
+    }
+
+    /// Read one word starting at the current position.
+    fn _readWordNow(self: *Lexer) []const u8 {
+        const begin = self._pos;
+        var end = begin;
+        while (self.getCurChar() != '\x00' and self.getCurChar() != ' ') : (end += 1) {
             self.nextChar();
         }
 
         return self._message[begin..end];
     }
 
-    /// Read one parameter from the message.
+    /// Read next word from the message.
+    fn readWord(self: *Lexer) []const u8 {
+        self._processSpace();
+        return self._readWordNow();
+    }
+
+    /// Read next parameter from the message.
     fn readParam(self: *Lexer) []const u8 {
+        self._processSpace();
+
         if (self.getCurChar() == ':') {
             const begin = self._pos + 1;
             self._pos = self._message.len;
-            return self._message[begin..self._pos];
+            return self._message[begin..];
         }
-        return self.readWord();
+        return self._readWordNow();
+    }
+
+    /// Query whether all characters were read.
+    fn isAtEnd(self: *const Lexer) bool {
+        return self._pos == self._message.len;
+    }
+
+    /// Read a remainder of the message.
+    fn readRest(self: *Lexer) []const u8 {
+        const begin = self._pos;
+        self._pos = self._message.len;
+        return self._message[begin..];
     }
 };
 
@@ -625,6 +651,19 @@ const Client = struct {
         };
     }
 
+    /// Check that end of the message has been reached. If not then report a warning.
+    fn _acceptEndOfMessage(self: *Client, lexer: *Lexer, command: []const u8) void {
+        if (lexer.isAtEnd())
+            return;
+
+        const pos = lexer.getCurPos() + 1;
+        const rest = lexer.readRest();
+        self._warn(
+            "Expected the end of the '{}' message at position '{}' but found '{}'.\n",
+            .{ command, pos, E(rest) },
+        );
+    }
+
     /// Process the NICK command.
     /// Parameters: <nickname>
     fn _processCommand_NICK(self: *Client, lexer: *Lexer) !void {
@@ -645,8 +684,7 @@ const Client = struct {
                 },
             }
         };
-
-        // TODO Check there no more unexpected parameters.
+        self._acceptEndOfMessage(lexer, "NICK");
 
         // Validate the nickname.
         for (new_nickname) |char, i| {
@@ -721,7 +759,7 @@ const Client = struct {
         const hostname = try self._acceptParam(lexer, "USER", .Mandatory);
         const servername = try self._acceptParam(lexer, "USER", .Mandatory);
         const realname = try self._acceptParam(lexer, "USER", .Mandatory);
-        // TODO Check there no more unexpected parameters.
+        self._acceptEndOfMessage(lexer, "USER");
 
         // TODO Report an error back to the client.
         try self._user._user(username, realname);
@@ -790,6 +828,7 @@ const Client = struct {
     /// Parameters: [<Quit message>]
     fn _processCommand_QUIT(self: *Client, lexer: *Lexer) !void {
         const quit_message = self._acceptParamOrDefault(lexer, "QUIT", "Client quit");
+        self._acceptEndOfMessage(lexer, "QUIT");
 
         var ec: bool = undefined;
         self._sendMessage(&ec, "ERROR :{}", .{CE(quit_message, &ec)});
