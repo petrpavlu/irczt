@@ -608,6 +608,9 @@ const Client = struct {
         warn("{}: " ++ fmt, .{self._addr} ++ args);
     }
 
+    /// Read one parameter from the message. If the parameter is missing then return
+    /// AcceptParamError.MissingParameter. If the parameter is additionally marked as mandatory then
+    /// send an error reply to the user.
     fn _acceptParam(
         self: *Client,
         lexer: *Lexer,
@@ -636,6 +639,8 @@ const Client = struct {
         return AcceptParamError.MissingParameter;
     }
 
+    /// Read an optional parameter from the message. If it is missing then return a specified
+    /// default value.
     fn _acceptParamOrDefault(
         self: *Client,
         lexer: *Lexer,
