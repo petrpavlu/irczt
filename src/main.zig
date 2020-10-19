@@ -815,7 +815,12 @@ const Client = struct {
             .{ hostname, CE(nickname, &ec) },
         );
 
-        self._sendMessage(&ec, ":irczt-connect PRIVMSG {} :Hello", .{CE(nickname, &ec)});
+        // Welcome the user also via a private message.
+        self._sendMessage(
+            &ec,
+            ":irczt-connect PRIVMSG {} :Welcome to {}",
+            .{ CE(nickname, &ec), hostname },
+        );
     }
 
     /// Check whether the user has completed the initial registration and is fully joined. If not
