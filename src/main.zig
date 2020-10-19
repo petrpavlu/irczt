@@ -678,7 +678,7 @@ const Client = struct {
                     self._sendMessage(
                         &ec,
                         ":{} 431 {} :No nickname given",
-                        .{ hostname, CE(nickname, &ec) },
+                        .{ CE(hostname, &ec), CE(nickname, &ec) },
                     );
                     return;
                 },
@@ -721,7 +721,7 @@ const Client = struct {
             self._sendMessage(
                 &ec,
                 ":{} 433 {} {} :Nickname is already in use",
-                .{ hostname, CE(nickname, &ec), CE(new_nickname, &ec) },
+                .{ CE(hostname, &ec), CE(nickname, &ec), CE(new_nickname, &ec) },
             );
             return;
         }
@@ -795,31 +795,31 @@ const Client = struct {
         self._sendMessage(
             &ec,
             ":{} 251 {} :There are {} users and 0 invisible on 1 servers",
-            .{ hostname, CE(nickname, &ec), users.count() },
+            .{ CE(hostname, &ec), CE(nickname, &ec), users.count() },
         );
 
         // Send motd.
         self._sendMessage(
             &ec,
             ":{} 375 {} :- {} Message of the Day -",
-            .{ hostname, CE(nickname, &ec), hostname },
+            .{ CE(hostname, &ec), CE(nickname, &ec), CE(hostname, &ec) },
         );
         self._sendMessage(
             &ec,
             ":{} 372 {} :- Welcome to the {} IRC network!",
-            .{ hostname, CE(nickname, &ec), hostname },
+            .{ CE(hostname, &ec), CE(nickname, &ec), CE(hostname, &ec) },
         );
         self._sendMessage(
             &ec,
             ":{} 376 {} :End of /MOTD command.",
-            .{ hostname, CE(nickname, &ec) },
+            .{ CE(hostname, &ec), CE(nickname, &ec) },
         );
 
         // Welcome the user also via a private message.
         self._sendMessage(
             &ec,
             ":irczt-connect PRIVMSG {} :Welcome to {}",
-            .{ CE(nickname, &ec), hostname },
+            .{ CE(nickname, &ec), CE(hostname, &ec) },
         );
     }
 
@@ -864,7 +864,11 @@ const Client = struct {
         var ec: bool = undefined;
 
         // Send RPL_LISTSTART.
-        self._sendMessage(&ec, ":{} 321 {} Channel :Users  Name", .{ hostname, CE(nickname, &ec) });
+        self._sendMessage(
+            &ec,
+            ":{} 321 {} Channel :Users  Name",
+            .{ CE(hostname, &ec), CE(nickname, &ec) },
+        );
 
         // Send RPL_LIST for each channel.
         const channels = self._user._server.getChannels();
@@ -876,12 +880,16 @@ const Client = struct {
             self._sendMessage(
                 &ec,
                 ":{} 322 {} {} {} :",
-                .{ hostname, CE(nickname, &ec), CE(name, &ec), member_count },
+                .{ CE(hostname, &ec), CE(nickname, &ec), CE(name, &ec), member_count },
             );
         }
 
         // Send RPL_LISTEND.
-        self._sendMessage(&ec, ":{} 323 {} :End of /LIST", .{ hostname, CE(nickname, &ec) });
+        self._sendMessage(
+            &ec,
+            ":{} 323 {} :End of /LIST",
+            .{ CE(hostname, &ec), CE(nickname, &ec) },
+        );
     }
 
     /// Process the JOIN command.
@@ -901,7 +909,7 @@ const Client = struct {
             self._sendMessage(
                 &ec,
                 ":{} 403 {} {} :No such channel",
-                .{ hostname, CE(nickname, &ec), CE(channel_name, &ec) },
+                .{ CE(hostname, &ec), CE(nickname, &ec), CE(channel_name, &ec) },
             );
             return;
         };
@@ -927,7 +935,7 @@ const Client = struct {
             self._sendMessage(
                 &ec,
                 ":{} 403 {} {} :No such channel",
-                .{ hostname, CE(nickname, &ec), CE(channel_name, &ec) },
+                .{ CE(hostname, &ec), CE(nickname, &ec), CE(channel_name, &ec) },
             );
             return;
         };
@@ -937,7 +945,7 @@ const Client = struct {
             self._sendMessage(
                 &ec,
                 ":{} 442 {} {} :You're not on that channel",
-                .{ hostname, CE(nickname, &ec), CE(channel_name, &ec) },
+                .{ CE(hostname, &ec), CE(nickname, &ec), CE(channel_name, &ec) },
             );
             return;
         }
@@ -980,7 +988,7 @@ const Client = struct {
             self._sendMessage(
                 &ec,
                 ":{} 401 {} {} :No such nick/channel",
-                .{ hostname, CE(nickname, &ec), CE(receiver, &ec) },
+                .{ CE(hostname, &ec), CE(nickname, &ec), CE(receiver, &ec) },
             );
             return;
         };
@@ -1454,14 +1462,19 @@ const Channel = struct {
             user.sendMessage(
                 &ec,
                 ":{} 332 {} {} :{}",
-                .{ hostname, CE(nickname, &ec), CE(self._name, &ec), CE(self._topic.?, &ec) },
+                .{
+                    CE(hostname, &ec),
+                    CE(nickname, &ec),
+                    CE(self._name, &ec),
+                    CE(self._topic.?, &ec),
+                },
             );
         } else {
             // Send RPL_NOTOPIC.
             user.sendMessage(
                 &ec,
                 ":{} 332 {} {} :No topic is set",
-                .{ hostname, CE(nickname, &ec), CE(self._name, &ec) },
+                .{ CE(hostname, &ec), CE(nickname, &ec), CE(self._name, &ec) },
             );
         }
 
@@ -1473,14 +1486,19 @@ const Channel = struct {
             user.sendMessage(
                 &ec,
                 ":{} 353 {} = {} :{}",
-                .{ hostname, CE(nickname, &ec), CE(self._name, &ec), CE(member_nickname, &ec) },
+                .{
+                    CE(hostname, &ec),
+                    CE(nickname, &ec),
+                    CE(self._name, &ec),
+                    CE(member_nickname, &ec),
+                },
             );
         }
         // Send RPL_ENDOFNAMES.
         user.sendMessage(
             &ec,
             ":{} 366 {} {} :End of /NAMES list",
-            .{ hostname, CE(nickname, &ec), CE(self._name, &ec) },
+            .{ CE(hostname, &ec), CE(nickname, &ec), CE(self._name, &ec) },
         );
     }
 
@@ -1538,9 +1556,12 @@ const Channel = struct {
                 &ec,
                 ":{} 352 {} {} {} hidden {} {} H :0 {}",
                 .{
-                    hostname,                      CE(nickname, &ec),
-                    CE(self._name, &ec),           CE(member.getUserName(), &ec),
-                    self._server.getHostName(),    CE(member.getNickName(), &ec),
+                    CE(hostname, &ec),
+                    CE(nickname, &ec),
+                    CE(self._name, &ec),
+                    CE(member.getUserName(), &ec),
+                    self._server.getHostName(),
+                    CE(member.getNickName(), &ec),
                     CE(member.getRealName(), &ec),
                 },
             );
@@ -1549,7 +1570,7 @@ const Channel = struct {
         user.sendMessage(
             &ec,
             ":{} 315 {} {} :End of /WHO list",
-            .{ hostname, CE(nickname, &ec), CE(self._name, &ec) },
+            .{ CE(hostname, &ec), CE(nickname, &ec), CE(self._name, &ec) },
         );
     }
 
