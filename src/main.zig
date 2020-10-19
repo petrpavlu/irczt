@@ -1992,6 +1992,14 @@ fn selectFromConfigRange(rng: *rand.Random, comptime T: type, range: *const conf
 }
 
 pub fn main() u8 {
+    // Ignore SIGPIPE.
+    const sa = os.Sigaction{
+        .sigaction = os.linux.SIG_IGN,
+        .mask = os.empty_sigset,
+        .flags = 0,
+    };
+    os.sigaction(os.SIGPIPE, &sa, null);
+
     // Get an allocator.
     var gp_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gp_allocator.deinit()) {
