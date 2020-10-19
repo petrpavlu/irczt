@@ -729,7 +729,11 @@ const Client = struct {
         const is_first_nickname = self._user._nickname == null;
 
         self._user._nick(new_nickname) catch |err| {
-            self._sendMessage(null, "ERROR :{}", .{@errorName(err)});
+            self._sendMessage(
+                null,
+                "ERROR :NICK command failed on the server: {}",
+                .{@errorName(err)},
+            );
             return err;
         };
 
@@ -761,8 +765,14 @@ const Client = struct {
         const realname = try self._acceptParam(lexer, "USER", .Mandatory);
         self._acceptEndOfMessage(lexer, "USER");
 
-        // TODO Report an error back to the client.
-        try self._user._user(username, realname);
+        self._user._user(username, realname) catch |err| {
+            self._sendMessage(
+                null,
+                "ERROR :USER command failed on the server: {}",
+                .{@errorName(err)},
+            );
+            return err;
+        };
 
         if (self._user._nickname != null) {
             // Complete the join if the initial NICK and USER pair was received.
