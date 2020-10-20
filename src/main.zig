@@ -491,11 +491,11 @@ const User = struct {
     }
 
     /// Leave a specified channel.
-    fn _partChannel(self: *User, channel: *Channel) void {
+    fn _partChannel(self: *User, channel: *Channel, part_message: []const u8) void {
         const channel_iter = self._channels.find(channel);
         assert(channel_iter.valid());
 
-        channel.part(self);
+        channel.part(self, part_message);
         self._channels.remove(channel_iter);
     }
 
@@ -993,36 +993,42 @@ const Client = struct {
     /// RFC 1459: Parameters: <channel>{,<channel>}
     /// RFC 2812: Parameters: <channel> *( "," <channel> ) [ <Part Message> ]
     ///    IRCZT: Parameters: <channel> *( "," <channel> ) [ <Part Message> ]
-    /// TODO Implement correct parameter parsing.
     fn _processCommand_PART(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        const channel_name = try self._acceptParam(lexer, "PART", .Mandatory);
+        const channel_list = try self._acceptParam(lexer, "PART", .Mandatory);
+        const part_message = self._acceptParamOrDefault(lexer, "PART", self._user.getNickName());
+        self._acceptEndOfMessage(lexer, "PART");
 
         const hostname = self._user._server.getHostName();
         const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
-        const channel = self._user._server.lookupChannel(channel_name) orelse {
-            // Send ERR_NOSUCHCHANNEL.
-            self._sendMessage(
-                &ec,
-                ":{} 403 {} {} :No such channel",
-                .{ CE(hostname, &ec), CE(nickname, &ec), CE(channel_name, &ec) },
-            );
-            return;
-        };
-        const channel_iter = self._user._channels.find(channel);
-        if (!channel_iter.valid()) {
-            // Send ERR_NOTONCHANNEL.
-            self._sendMessage(
-                &ec,
-                ":{} 442 {} {} :You're not on that channel",
-                .{ CE(hostname, &ec), CE(nickname, &ec), CE(channel_name, &ec) },
-            );
-            return;
+        var sub_lexer = Lexer.init(channel_list);
+        while (sub_lexer.readListItem()) |channel_name| {
+            const channel = self._user._server.lookupChannel(channel_name) orelse {
+                // Send ERR_NOSUCHCHANNEL.
+                self._sendMessage(
+                    &ec,
+                    ":{} 403 {} {} :No such channel",
+                    .{ CE(hostname, &ec), CE(nickname, &ec), CE(channel_name, &ec) },
+                );
+                continue;
+            };
+
+            const channel_iter = self._user._channels.find(channel);
+            if (!channel_iter.valid()) {
+                // Send ERR_NOTONCHANNEL.
+                self._sendMessage(
+                    &ec,
+                    ":{} 442 {} {} :You're not on that channel",
+                    .{ CE(hostname, &ec), CE(nickname, &ec), CE(channel_name, &ec) },
+                );
+                continue;
+            }
+
+            self._user._partChannel(channel, part_message);
         }
-        self._user._partChannel(channel);
     }
 
     /// Process the WHO command.
@@ -1365,7 +1371,7 @@ const LocalBot = struct {
             _ = channel_iter.next();
 
             if (rng.float(f32) < self._channels_leave_rate) {
-                self._user._partChannel(channel);
+                self._user._partChannel(channel, self._user.getNickName());
             }
         }
     }
@@ -1591,7 +1597,7 @@ const Channel = struct {
     }
 
     /// Process leave from a user.
-    fn part(self: *Channel, user: *User) void {
+    fn part(self: *Channel, user: *User, part_message: []const u8) void {
         const nickname = user.getNickName();
         var ec: bool = undefined;
 
@@ -1601,8 +1607,8 @@ const Channel = struct {
             const member = member_node.key();
             member.sendMessage(
                 &ec,
-                ":{} PART {}",
-                .{ CE(nickname, &ec), CE(self._name, &ec) },
+                ":{} PART {} :{}",
+                .{ CE(nickname, &ec), CE(self._name, &ec), CE(part_message, &ec) },
             );
         }
 
