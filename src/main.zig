@@ -475,7 +475,8 @@ const User = struct {
         }
     }
 
-    /// Join a specified channel.
+    /// Join a specified channel. Note that it is a caller's responsibility to make sure that the
+    /// user is not already in the channel.
     fn _joinChannel(self: *User, channel: *Channel) !void {
         const channel_iter = self._channels.insert(channel, {}) catch |err| {
             self._warn(
@@ -941,11 +942,13 @@ const Client = struct {
     }
 
     /// Process the JOIN command.
-    /// Parameters: <channel>{,<channel>} [<key>{,<key>}]
+    /// RFC 1459: Parameters: <channel>{,<channel>} [<key>{,<key>}]
+    /// RFC 2812: Parameters: ( <channel> *( "," <channel> ) [ <key> *( "," <key> ) ] ) / "0"
+    ///    IRCZT: Parameters: ( <channel> *( "," <channel> ) [ <key> *( "," <key> ) ] ) / "0"
+    /// TODO Implement correct parameter parsing.
     fn _processCommand_JOIN(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        // TODO Parse all parameters.
         const channel_name = try self._acceptParam(lexer, "JOIN", .Mandatory);
 
         const hostname = self._user._server.getHostName();
@@ -961,8 +964,20 @@ const Client = struct {
             );
             return;
         };
-        // TODO Report any error to the client.
-        try self._user._joinChannel(channel);
+
+        // If the user is already in the channel then return as there is nothing left to do.
+        if (channel.hasMember(&self._user)) {
+            return;
+        }
+
+        self._user._joinChannel(channel) catch |err| {
+            self._sendMessage(
+                null,
+                "ERROR :JOIN command failed on the server: {}",
+                .{@errorName(err)},
+            );
+            return err;
+        };
     }
 
     /// Process the PART command.
@@ -1482,9 +1497,11 @@ const Channel = struct {
         warn("{}: " ++ fmt, .{name} ++ args);
     }
 
-    /// Process join from a user.
+    /// Process join from a user. Note that it is a caller's responsibility to make sure that the
+    /// user is not already in the channel.
     fn join(self: *Channel, user: *User) !void {
-        // TODO Fix handling of duplicated join.
+        assert(!self.hasMember(user));
+
         const user_iter = self._members.insert(user, {}) catch |err| {
             self._warn(
                 "Failed to insert user '{}' in the channel user set: {}.\n",
