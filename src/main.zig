@@ -1478,7 +1478,7 @@ const Channel = struct {
             // Send RPL_NOTOPIC.
             user.sendMessage(
                 &ec,
-                ":{} 332 {} {} :No topic is set",
+                ":{} 331 {} {} :No topic is set",
                 .{ CE(hostname, &ec), CE(nickname, &ec), CE(self._name, &ec) },
             );
         }
