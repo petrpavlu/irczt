@@ -1360,7 +1360,6 @@ const LocalBot = struct {
         const rng = self._user._server.getRNG();
 
         var channel_iter = self._user._channels.iterator();
-        _ = channel_iter.next();
         while (channel_iter.valid()) {
             const channel = channel_iter.key();
             _ = channel_iter.next();
