@@ -236,6 +236,22 @@ const Lexer = struct {
         return self._readWordNow();
     }
 
+    /// Read a next list item from the string. Individual items are separated by commas, the string
+    /// should not contain any spaces. This function is used to parse list items from parameters.
+    fn readListItem(self: *Lexer) ?[]const u8 {
+        if (self._pos != 0 and self.getCurChar() == ',') {
+            self.nextChar();
+        }
+
+        const begin = self._pos;
+        var end = begin;
+        while (self.getCurChar() != '\x00' and self.getCurChar() != ',') : (end += 1) {
+            self.nextChar();
+        }
+
+        return if (begin != end) self._string[begin..end] else null;
+    }
+
     /// Query whether all characters were read.
     fn isAtEnd(self: *const Lexer) bool {
         return self._pos == self._string.len;
