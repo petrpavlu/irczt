@@ -164,33 +164,33 @@ fn CE(slice: []const u8, cond: *bool) ConditionalEscapeFormatter {
 }
 
 const Lexer = struct {
-    _message: []const u8,
+    _string: []const u8,
     _pos: usize,
 
     /// Construct a Lexer.
-    fn init(message: []const u8) Lexer {
+    fn init(string: []const u8) Lexer {
         return Lexer{
-            ._message = message,
+            ._string = string,
             ._pos = 0,
         };
     }
 
-    /// Return the current position in the input message.
+    /// Return the current position in the input string.
     fn getCurPos(self: *const Lexer) usize {
         return self._pos;
     }
 
     /// Return the current character.
     fn getCurChar(self: *const Lexer) u8 {
-        if (self._pos < self._message.len) {
-            return self._message[self._pos];
+        if (self._pos < self._string.len) {
+            return self._string[self._pos];
         }
         return 0;
     }
 
-    /// Skip to a next character in the message.
+    /// Skip to a next character in the string.
     fn nextChar(self: *Lexer) void {
-        if (self._pos < self._message.len) {
+        if (self._pos < self._string.len) {
             self._pos += 1;
         }
     }
@@ -207,44 +207,46 @@ const Lexer = struct {
     }
 
     /// Read one word starting at the current position.
-    fn _readWordNow(self: *Lexer) []const u8 {
+    fn _readWordNow(self: *Lexer) ?[]const u8 {
         const begin = self._pos;
         var end = begin;
         while (self.getCurChar() != '\x00' and self.getCurChar() != ' ') : (end += 1) {
             self.nextChar();
         }
 
-        return self._message[begin..end];
+        return if (begin != end) self._string[begin..end] else null;
     }
 
-    /// Read next word from the message.
-    fn readWord(self: *Lexer) []const u8 {
+    /// Read a next word from the string.
+    fn readWord(self: *Lexer) ?[]const u8 {
         self._processSpace();
         return self._readWordNow();
     }
 
-    /// Read next parameter from the message.
-    fn readParam(self: *Lexer) []const u8 {
+    /// Read a next parameter from the string.
+    fn readParam(self: *Lexer) ?[]const u8 {
         self._processSpace();
 
         if (self.getCurChar() == ':') {
             const begin = self._pos + 1;
-            self._pos = self._message.len;
-            return self._message[begin..];
+            const end = self._string.len;
+            self._pos = end;
+            return if (begin != end) self._string[begin..end] else null;
         }
         return self._readWordNow();
     }
 
     /// Query whether all characters were read.
     fn isAtEnd(self: *const Lexer) bool {
-        return self._pos == self._message.len;
+        return self._pos == self._string.len;
     }
 
-    /// Read a remainder of the message.
-    fn readRest(self: *Lexer) []const u8 {
+    /// Read a remainder of the string.
+    fn readRest(self: *Lexer) ?[]const u8 {
         const begin = self._pos;
-        self._pos = self._message.len;
-        return self._message[begin..];
+        const end = self._string.len;
+        self._pos = end;
+        return if (begin != end) self._string[begin..end] else null;
     }
 };
 
@@ -617,10 +619,9 @@ const Client = struct {
         command: []const u8,
         requirement: enum { Mandatory, Optional, Silent },
     ) AcceptParamError![]const u8 {
-        const begin = lexer.getCurPos();
-        const res = lexer.readParam();
-        if (res.len != 0) {
-            return res;
+        const param = lexer.readParam();
+        if (param != null) {
+            return param.?;
         }
 
         if (requirement == .Mandatory) {
@@ -662,7 +663,7 @@ const Client = struct {
             return;
 
         const pos = lexer.getCurPos() + 1;
-        const rest = lexer.readRest();
+        const rest = lexer.readRest() orelse unreachable;
         self._warn(
             "Expected the end of the '{}' message at position '{}' but found '{}'.\n",
             .{ command, pos, E(rest) },
@@ -1034,7 +1035,10 @@ const Client = struct {
         }
 
         // Parse the command name.
-        const command = lexer.readWord();
+        const command = lexer.readWord() orelse {
+            // TODO Report the missing command name.
+            return;
+        };
 
         // Process the command.
         if (mem.eql(u8, command, "NICK")) {
