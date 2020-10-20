@@ -888,7 +888,7 @@ const Client = struct {
     fn _processCommand_LIST(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        const channel_list: ?[]const u8 = self._acceptParam(lexer, "LIST", .Optional) catch null;
+        const channel_list = self._acceptParam(lexer, "LIST", .Optional) catch null;
         self._acceptEndOfMessage(lexer, "LIST");
 
         const hostname = self._user._server.getHostName();
