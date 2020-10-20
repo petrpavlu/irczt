@@ -875,11 +875,14 @@ const Client = struct {
     }
 
     /// Process the LIST command.
-    /// Parameters: [<channel>{,<channel>} [<server>]]
+    /// RFC 1459: Parameters: [<channel>{,<channel>} [<server>]]
+    /// RFC 2812: Parameters: [ <channel> *( "," <channel> ) [ <target> ] ]
+    ///    IRCZT: Parameters: [ <channel> *( "," <channel> ) ]
     fn _processCommand_LIST(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        // TODO Parse the parameters.
+        const channel_list: ?[]const u8 = self._acceptParam(lexer, "LIST", .Optional) catch null;
+        self._acceptEndOfMessage(lexer, "LIST");
 
         const hostname = self._user._server.getHostName();
         const nickname = self._user.getNickName();
@@ -892,18 +895,41 @@ const Client = struct {
             .{ CE(hostname, &ec), CE(nickname, &ec) },
         );
 
-        // Send RPL_LIST for each channel.
-        const channels = self._user._server.getChannels();
-        var channel_iter = channels.iterator();
-        while (channel_iter.next()) |channel_node| {
-            const channel = channel_node.value();
-            const name = channel.getName();
-            const member_count = channel.getMemberCount();
-            self._sendMessage(
-                &ec,
-                ":{} 322 {} {} {} :",
-                .{ CE(hostname, &ec), CE(nickname, &ec), CE(name, &ec), member_count },
-            );
+        if (channel_list != null) {
+            // Send RPL_LIST for each matched channel.
+            var sub_lexer = Lexer.init(channel_list.?);
+            while (sub_lexer.readListItem()) |channel_name| {
+                const channel = self._user._server.lookupChannel(channel_name) orelse continue;
+                self._sendMessage(
+                    &ec,
+                    ":{} 322 {} {} {} :{}",
+                    .{
+                        CE(hostname, &ec),
+                        CE(nickname, &ec),
+                        CE(channel.getName(), &ec),
+                        channel.getMemberCount(),
+                        CE(channel.getTopic(), &ec),
+                    },
+                );
+            }
+        } else {
+            // Send RPL_LIST for each channel on the server.
+            const channels = self._user._server.getChannels();
+            var channel_iter = channels.iterator();
+            while (channel_iter.next()) |channel_node| {
+                const channel = channel_node.value();
+                self._sendMessage(
+                    &ec,
+                    ":{} 322 {} {} {} :{}",
+                    .{
+                        CE(hostname, &ec),
+                        CE(nickname, &ec),
+                        CE(channel.getName(), &ec),
+                        channel.getMemberCount(),
+                        CE(channel.getTopic(), &ec),
+                    },
+                );
+            }
         }
 
         // Send RPL_LISTEND.
@@ -1427,6 +1453,13 @@ const Channel = struct {
 
     fn getName(self: *const Channel) []const u8 {
         return self._name;
+    }
+
+    fn getTopic(self: *const Channel) []const u8 {
+        if (self._topic != null) {
+            return self._topic.?;
+        }
+        return "";
     }
 
     fn getMemberCount(self: *const Channel) usize {
