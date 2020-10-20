@@ -950,40 +950,43 @@ const Client = struct {
     /// Process the JOIN command.
     /// RFC 1459: Parameters: <channel>{,<channel>} [<key>{,<key>}]
     /// RFC 2812: Parameters: ( <channel> *( "," <channel> ) [ <key> *( "," <key> ) ] ) / "0"
-    ///    IRCZT: Parameters: ( <channel> *( "," <channel> ) [ <key> *( "," <key> ) ] ) / "0"
-    /// TODO Implement correct parameter parsing.
+    ///    IRCZT: Parameters: <channel> *( "," <channel> )
     fn _processCommand_JOIN(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        const channel_name = try self._acceptParam(lexer, "JOIN", .Mandatory);
+        const channel_list = try self._acceptParam(lexer, "JOIN", .Mandatory);
+        self._acceptEndOfMessage(lexer, "JOIN");
 
         const hostname = self._user._server.getHostName();
         const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
-        const channel = self._user._server.lookupChannel(channel_name) orelse {
-            // Send ERR_NOSUCHCHANNEL.
-            self._sendMessage(
-                &ec,
-                ":{} 403 {} {} :No such channel",
-                .{ CE(hostname, &ec), CE(nickname, &ec), CE(channel_name, &ec) },
-            );
-            return;
-        };
+        var sub_lexer = Lexer.init(channel_list);
+        while (sub_lexer.readListItem()) |channel_name| {
+            const channel = self._user._server.lookupChannel(channel_name) orelse {
+                // Send ERR_NOSUCHCHANNEL.
+                self._sendMessage(
+                    &ec,
+                    ":{} 403 {} {} :No such channel",
+                    .{ CE(hostname, &ec), CE(nickname, &ec), CE(channel_name, &ec) },
+                );
+                continue;
+            };
 
-        // If the user is already in the channel then return as there is nothing left to do.
-        if (channel.hasMember(&self._user)) {
-            return;
+            // If the user is already in the channel then skip it as there is nothing left to do.
+            if (channel.hasMember(&self._user)) {
+                continue;
+            }
+
+            self._user._joinChannel(channel) catch |err| {
+                self._sendMessage(
+                    null,
+                    "ERROR :JOIN command failed on the server: {}",
+                    .{@errorName(err)},
+                );
+                return err;
+            };
         }
-
-        self._user._joinChannel(channel) catch |err| {
-            self._sendMessage(
-                null,
-                "ERROR :JOIN command failed on the server: {}",
-                .{@errorName(err)},
-            );
-            return err;
-        };
     }
 
     /// Process the PART command.
