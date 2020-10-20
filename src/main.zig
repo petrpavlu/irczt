@@ -688,7 +688,9 @@ const Client = struct {
     }
 
     /// Process the NICK command.
-    /// Parameters: <nickname>
+    /// RFC 1459: Parameters: <nickname> [ <hopcount> ]
+    /// RFC 2812: Parameters: <nickname>
+    ///    IRCZT: Parameters: <nickname>
     fn _processCommand_NICK(self: *Client, lexer: *Lexer) !void {
         const hostname = self._user._server.getHostName();
         const nickname = self._user.getNickName();
@@ -768,7 +770,9 @@ const Client = struct {
     }
 
     /// Process the USER command.
-    /// Parameters: <username> <hostname> <servername> <realname>
+    /// RFC 1459: Parameters: <username> <hostname> <servername> <realname>
+    /// RFC 2812: Parameters: <user> <mode> <unused> <realname>
+    ///    IRCZT: Parameters: <username> <unused> <unused> <realname>
     fn _processCommand_USER(self: *Client, lexer: *Lexer) !void {
         assert((self._user._username != null) == (self._user._realname != null));
         if (self._user._username != null) {
@@ -863,7 +867,9 @@ const Client = struct {
     }
 
     /// Process the QUIT command.
-    /// Parameters: [<Quit message>]
+    /// RFC 1459: Parameters: [<Quit message>]
+    /// RFC 2812: Parameters: [ <Quit Message> ]
+    ///    IRCZT: Parameters: [ <Quit Message> ]
     fn _processCommand_QUIT(self: *Client, lexer: *Lexer) !void {
         const quit_message = self._acceptParamOrDefault(lexer, "QUIT", "Client quit");
         self._acceptEndOfMessage(lexer, "QUIT");
@@ -983,10 +989,11 @@ const Client = struct {
     /// Process the PART command.
     /// RFC 1459: Parameters: <channel>{,<channel>}
     /// RFC 2812: Parameters: <channel> *( "," <channel> ) [ <Part Message> ]
+    ///    IRCZT: Parameters: <channel> *( "," <channel> ) [ <Part Message> ]
+    /// TODO Implement correct parameter parsing.
     fn _processCommand_PART(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        // TODO Parse all parameters.
         const channel_name = try self._acceptParam(lexer, "PART", .Mandatory);
 
         const hostname = self._user._server.getHostName();
@@ -1016,11 +1023,13 @@ const Client = struct {
     }
 
     /// Process the WHO command.
-    /// Parameters: [<name> [<o>]]
+    /// RFC 1459: Parameters: [<name> [<o>]]
+    /// RFC 2812: Parameters: [ <mask> [ "o" ] ]
+    ///    IRCZT: Parameters: [ <mask> [ "o" ] ]
+    /// TODO Implement correct parameter parsing.
     fn _processCommand_WHO(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        // TODO Parse all parameters.
         const name = try self._acceptParam(lexer, "WHO", .Mandatory);
 
         const hostname = self._user._server.getHostName();
@@ -1033,11 +1042,13 @@ const Client = struct {
     }
 
     /// Process the PRIVMSG command.
-    /// Parameters: <receiver>{,<receiver>} <text to be sent>
+    /// RFC 1459: Parameters: <receiver>{,<receiver>} <text to be sent>
+    /// RFC 2812: Parameters: <msgtarget> <text to be sent>
+    ///    IRCZT: Parameters: <msgtarget> <text to be sent>
+    /// TODO Implement correct parameter parsing.
     fn _processCommand_PRIVMSG(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        // TODO Parse all parameters.
         const receiver = try self._acceptParam(lexer, "PRIVMSG", .Mandatory);
         const text = try self._acceptParam(lexer, "PRIVMSG", .Mandatory);
 
