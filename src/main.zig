@@ -332,8 +332,8 @@ const User = struct {
         var ec: bool = undefined;
 
         const users = self._server.getUsers();
-        var user_iterator = users.iterator();
-        while (user_iterator.next()) |user_node| {
+        var user_iter = users.iterator();
+        while (user_iter.next()) |user_node| {
             const user = user_node.value();
 
             // Skip if this is the current user.
