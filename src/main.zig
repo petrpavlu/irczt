@@ -346,7 +346,9 @@ const User = struct {
             var channel_iter = self._channels.iterator();
             while (channel_iter.next()) |channel_node| {
                 const channel = channel_node.key();
-                if (channel.hasMember(user)) {
+                const members = channel.getMembers();
+                const member_iter = members.find(user);
+                if (member_iter.valid()) {
                     found = true;
                     break;
                 }
@@ -914,7 +916,7 @@ const Client = struct {
                         CE(hostname, &ec),
                         CE(nickname, &ec),
                         CE(channel.getName(), &ec),
-                        channel.getMemberCount(),
+                        channel.getMembers().count(),
                         CE(channel.getTopic(), &ec),
                     },
                 );
@@ -932,7 +934,7 @@ const Client = struct {
                         CE(hostname, &ec),
                         CE(nickname, &ec),
                         CE(channel.getName(), &ec),
-                        channel.getMemberCount(),
+                        channel.getMembers().count(),
                         CE(channel.getTopic(), &ec),
                     },
                 );
@@ -974,7 +976,9 @@ const Client = struct {
             };
 
             // If the user is already in the channel then skip it as there is nothing left to do.
-            if (channel.hasMember(&self._user)) {
+            const members = channel.getMembers();
+            const member_iter = members.find(&self._user);
+            if (member_iter.valid()) {
                 continue;
             }
 
@@ -1496,14 +1500,8 @@ const Channel = struct {
         return "";
     }
 
-    fn getMemberCount(self: *const Channel) usize {
-        return self._members.count();
-    }
-
-    fn hasMember(self: *const Channel, user: *User) bool {
-        // TODO Constify user.
-        const member_iter = self._members.find(user);
-        return member_iter.valid();
+    fn getMembers(self: *const Channel) *const UserSet {
+        return &self._members;
     }
 
     fn _info(self: *const Channel, comptime fmt: []const u8, args: anytype) void {
@@ -1519,8 +1517,6 @@ const Channel = struct {
     /// Process join from a user. Note that it is a caller's responsibility to make sure that the
     /// user is not already in the channel.
     fn join(self: *Channel, user: *User) !void {
-        assert(!self.hasMember(user));
-
         const user_iter = self._members.insert(user, {}) catch |err| {
             self._warn(
                 "Failed to insert user '{}' in the channel user set: {}.\n",
