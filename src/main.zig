@@ -311,14 +311,14 @@ const User = struct {
         self._channels.deinit();
 
         const allocator = self._server.getAllocator();
-        if (self._nickname != null) {
-            allocator.free(self._nickname.?);
+        if (self._nickname) |nickname| {
+            allocator.free(nickname);
         }
-        if (self._username != null) {
-            allocator.free(self._username.?);
+        if (self._username) |username| {
+            allocator.free(username);
         }
-        if (self._realname != null) {
-            allocator.free(self._realname.?);
+        if (self._realname) |realname| {
+            allocator.free(realname);
         }
     }
 
@@ -371,7 +371,7 @@ const User = struct {
     }
 
     fn getNickName(self: *const User) []const u8 {
-        return if (self._nickname != null) self._nickname.? else "*";
+        return if (self._nickname) |nickname| nickname else "*";
     }
 
     fn hasNickName(self: *const User) bool {
@@ -399,23 +399,23 @@ const User = struct {
         // Zig compiler.
         try self._server.recordNickNameChange(
             self,
-            if (self._nickname != null) self._nickname.? else null,
+            if (self._nickname) |old_nickname| old_nickname else null,
             nickname_copy,
         );
 
         // Set the new nickname.
-        if (self._nickname != null) {
-            allocator.free(self._nickname.?);
+        if (self._nickname) |old_nickname| {
+            allocator.free(old_nickname);
         }
         self._nickname = nickname_copy;
     }
 
     fn getUserName(self: *const User) []const u8 {
-        return if (self._username != null) self._username.? else "*";
+        return if (self._username) |username| username else "*";
     }
 
     fn getRealName(self: *const User) []const u8 {
-        return if (self._realname != null) self._realname.? else "*";
+        return if (self._realname) |realname| realname else "*";
     }
 
     fn _user(self: *User, username: []const u8, realname: []const u8) !void {
@@ -444,13 +444,13 @@ const User = struct {
         mem.copy(u8, realname_copy, realname);
 
         // Set the new username and realname.
-        if (self._username != null) {
-            allocator.free(self._username.?);
+        if (self._username) |old_username| {
+            allocator.free(old_username);
         }
         self._username = username_copy;
 
-        if (self._realname != null) {
-            allocator.free(self._realname.?);
+        if (self._realname) |old_realname| {
+            allocator.free(old_realname);
         }
         self._realname = realname_copy;
     }
@@ -638,9 +638,9 @@ const Client = struct {
         command: []const u8,
         requirement: enum { Mandatory, Optional, Silent },
     ) AcceptParamError![]const u8 {
-        const param = lexer.readParam();
-        if (param != null) {
-            return param.?;
+        const maybe_param = lexer.readParam();
+        if (maybe_param) |param| {
+            return param;
         }
 
         if (requirement == .Mandatory) {
@@ -890,7 +890,7 @@ const Client = struct {
     fn _processCommand_LIST(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        const channel_list = self._acceptParam(lexer, "LIST", .Optional) catch null;
+        const maybe_channel_list = self._acceptParam(lexer, "LIST", .Optional) catch null;
         self._acceptEndOfMessage(lexer, "LIST");
 
         const hostname = self._user._server.getHostName();
@@ -904,9 +904,9 @@ const Client = struct {
             .{ CE(hostname, &ec), CE(nickname, &ec) },
         );
 
-        if (channel_list != null) {
+        if (maybe_channel_list) |channel_list| {
             // Send RPL_LIST for each matched channel.
-            var sub_lexer = Lexer.init(channel_list.?);
+            var sub_lexer = Lexer.init(channel_list);
             while (sub_lexer.readListItem()) |channel_name| {
                 const channel = self._user._server.lookupChannel(channel_name) orelse continue;
                 self._sendMessage(
@@ -1111,16 +1111,16 @@ const Client = struct {
     /// Send a message to the client.
     fn _sendMessage(
         self: *Client,
-        escape_cond: ?*bool,
+        maybe_escape_cond: ?*bool,
         comptime fmt: []const u8,
         args: anytype,
     ) void {
-        if (escape_cond != null) {
-            escape_cond.?.* = true;
+        if (maybe_escape_cond) |escape_cond| {
+            escape_cond.* = true;
         }
         self._info("> " ++ fmt ++ "\n", args);
-        if (escape_cond != null) {
-            escape_cond.?.* = false;
+        if (maybe_escape_cond) |escape_cond| {
+            escape_cond.* = false;
         }
         self._file_writer.print(fmt ++ "\r\n", args) catch |err| {
             self._warn(
@@ -1504,8 +1504,8 @@ const Channel = struct {
 
         const allocator = self._server.getAllocator();
         allocator.free(self._name);
-        if (self._topic != null) {
-            allocator.free(self._topic.?);
+        if (self._topic) |topic| {
+            allocator.free(topic);
         }
 
         // Channels can be destroyed only after all users leave.
@@ -1520,10 +1520,7 @@ const Channel = struct {
     }
 
     fn getTopic(self: *const Channel) []const u8 {
-        if (self._topic != null) {
-            return self._topic.?;
-        }
-        return "";
+        return if (self._topic) |topic| topic else "";
     }
 
     fn getMembers(self: *const Channel) *const UserSet {
@@ -1573,7 +1570,7 @@ const Channel = struct {
         }
 
         // Send information about the channel topic.
-        if (self._topic != null) {
+        if (self._topic) |topic| {
             // Send RPL_TOPIC.
             user.sendMessage(
                 &ec,
@@ -1582,7 +1579,7 @@ const Channel = struct {
                     CE(hostname, &ec),
                     CE(nickname, &ec),
                     CE(self._name, &ec),
-                    CE(self._topic.?, &ec),
+                    CE(topic, &ec),
                 },
             );
         } else {
@@ -2008,7 +2005,7 @@ const Server = struct {
     fn recordNickNameChange(
         self: *Server,
         user: *User,
-        old_nickname: ?[]const u8,
+        maybe_old_nickname: ?[]const u8,
         new_nickname: []const u8,
     ) !void {
         _ = self._users.insert(new_nickname, user) catch |err| {
@@ -2019,8 +2016,8 @@ const Server = struct {
             return err;
         };
 
-        if (old_nickname != null) {
-            const user_iter = self._users.find(old_nickname.?);
+        if (maybe_old_nickname) |old_nickname| {
+            const user_iter = self._users.find(old_nickname);
             assert(user_iter.valid());
             self._users.remove(user_iter);
         }
