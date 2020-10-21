@@ -1,4 +1,4 @@
-// Copyright (C) 2018 Petr Pavlu <setup@dagobah.cz>
+// Copyright (C) 2018-2020 Petr Pavlu <setup@dagobah.cz>
 // SPDX-License-Identifier: MIT
 
 const Builder = @import("std").build.Builder;
