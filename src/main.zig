@@ -1084,28 +1084,37 @@ const Client = struct {
     /// RFC 1459: Parameters: <receiver>{,<receiver>} <text to be sent>
     /// RFC 2812: Parameters: <msgtarget> <text to be sent>
     ///    IRCZT: Parameters: <msgtarget> <text to be sent>
-    /// TODO Implement correct parameter parsing.
     fn _processCommand_PRIVMSG(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        const receiver = try self._acceptParam(lexer, "PRIVMSG", .Mandatory);
+        const msgtarget = try self._acceptParam(lexer, "PRIVMSG", .Mandatory);
         const text = try self._acceptParam(lexer, "PRIVMSG", .Mandatory);
+        self._acceptEndOfMessage(lexer, "PRIVMSG");
 
         const hostname = self._user._server.getHostName();
         const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
-        // TODO Handle messages to users too.
-        const channel = self._user._server.lookupChannel(receiver) orelse {
-            // Send ERR_NOSUCHNICK.
-            self._sendMessage(
-                &ec,
-                ":{} 401 {} {} :No such nick/channel",
-                .{ CE(hostname, &ec), CE(nickname, &ec), CE(receiver, &ec) },
-            );
+        // Try matching msgtarget with a channel name.
+        const maybe_channel = self._user._server.lookupChannel(msgtarget);
+        if (maybe_channel) |channel| {
+            channel.sendPrivMsg(&self._user, text);
             return;
-        };
-        channel.sendPrivMsg(&self._user, text);
+        }
+
+        // Try matching msgtarget with a user nick.
+        const maybe_user = self._user._server.lookupUser(msgtarget);
+        if (maybe_user) |user| {
+            user.sendPrivMsg(nickname, msgtarget, text);
+            return;
+        }
+
+        // Send ERR_NOSUCHNICK.
+        self._sendMessage(
+            &ec,
+            ":{} 401 {} {} :No such nick/channel",
+            .{ CE(hostname, &ec), CE(nickname, &ec), CE(msgtarget, &ec) },
+        );
     }
 
     /// Send a message to the client.
