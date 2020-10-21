@@ -1038,20 +1038,46 @@ const Client = struct {
     /// Process the WHO command.
     /// RFC 1459: Parameters: [<name> [<o>]]
     /// RFC 2812: Parameters: [ <mask> [ "o" ] ]
-    ///    IRCZT: Parameters: [ <mask> [ "o" ] ]
-    /// TODO Implement correct parameter parsing.
+    ///    IRCZT: Parameters: <channel>
     fn _processCommand_WHO(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
         const name = try self._acceptParam(lexer, "WHO", .Mandatory);
+        self._acceptEndOfMessage(lexer, "WHO");
 
         const hostname = self._user._server.getHostName();
         const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
-        // TODO Report any error to the client.
-        const channel = self._user._server.lookupChannel(name) orelse return;
-        channel.who(&self._user);
+        const maybe_channel = self._user._server.lookupChannel(name);
+        if (maybe_channel) |channel| {
+            // Send RPL_WHOREPLY.
+            const members = channel.getMembers();
+            var member_iter = members.iterator();
+            while (member_iter.next()) |member_node| {
+                const member = member_node.key();
+                self._sendMessage(
+                    &ec,
+                    ":{} 352 {} {} {} hidden {} {} H :0 {}",
+                    .{
+                        CE(hostname, &ec),
+                        CE(nickname, &ec),
+                        CE(name, &ec),
+                        CE(member.getUserName(), &ec),
+                        CE(hostname, &ec),
+                        CE(member.getNickName(), &ec),
+                        CE(member.getRealName(), &ec),
+                    },
+                );
+            }
+        }
+
+        // Send RPL_ENDOFWHO.
+        self._sendMessage(
+            &ec,
+            ":{} 315 {} {} :End of /WHO list",
+            .{ CE(hostname, &ec), CE(nickname, &ec), CE(name, &ec) },
+        );
     }
 
     /// Process the PRIVMSG command.
@@ -1629,38 +1655,6 @@ const Channel = struct {
         self._info(
             "User '{}' quit the channel (now at '{}' users).\n",
             .{ E(user.getNickName()), self._members.count() },
-        );
-    }
-
-    /// Query "who" information about all users in the channel.
-    fn who(self: *Channel, user: *User) void {
-        const nickname = user.getNickName();
-        const hostname = self._server.getHostName();
-        var ec: bool = undefined;
-
-        // Send RPL_WHOREPLY.
-        var member_iter = self._members.iterator();
-        while (member_iter.next()) |member_node| {
-            const member = member_node.key();
-            user.sendMessage(
-                &ec,
-                ":{} 352 {} {} {} hidden {} {} H :0 {}",
-                .{
-                    CE(hostname, &ec),
-                    CE(nickname, &ec),
-                    CE(self._name, &ec),
-                    CE(member.getUserName(), &ec),
-                    self._server.getHostName(),
-                    CE(member.getNickName(), &ec),
-                    CE(member.getRealName(), &ec),
-                },
-            );
-        }
-        // Send RPL_ENDOFWHO.
-        user.sendMessage(
-            &ec,
-            ":{} 315 {} {} :End of /WHO list",
-            .{ CE(hostname, &ec), CE(nickname, &ec), CE(self._name, &ec) },
         );
     }
 
