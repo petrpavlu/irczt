@@ -548,6 +548,7 @@ const Client = struct {
 
     const InputError = error{
         NonMatchingPrefix,
+        MissingCommand,
         EndOfFile,
         Quit,
     };
@@ -1165,8 +1166,12 @@ const Client = struct {
 
         // Parse the command name.
         const command = lexer.readWord() orelse {
-            // TODO Report the missing command name.
-            return;
+            self._sendMessage(
+                &ec,
+                "ERROR :No command specified in the message '{}'",
+                .{CE(message, &ec)},
+            );
+            return Client.InputError.MissingCommand;
         };
 
         // Process the command.
