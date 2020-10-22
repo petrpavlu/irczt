@@ -547,6 +547,7 @@ const Client = struct {
     const CheckRegisteredError = error{NotRegistered};
 
     const InputError = error{
+        NonMatchingPrefix,
         EndOfFile,
         Quit,
     };
@@ -1144,10 +1145,22 @@ const Client = struct {
         self._info("< {}\n", .{E(message)});
 
         var lexer = Lexer.init(message);
+        const hostname = self._user._server.getHostName();
+        const nickname = self._user.getNickName();
+        var ec: bool = undefined;
 
-        // Parse any prefix.
+        // Parse any prefix. If it is present then check it matches the current nickname as that is
+        // the only allowed prefix for clients.
         if (lexer.getCurChar() == ':') {
-            // TODO Error.
+            const prefix = lexer.readWord() orelse unreachable;
+            if (!mem.eql(u8, prefix[1..], nickname)) {
+                self._sendMessage(
+                    &ec,
+                    "ERROR :Message prefix '{}' does not match the nickname '{}'",
+                    .{ CE(prefix[1..], &ec), CE(nickname, &ec) },
+                );
+                return Client.InputError.NonMatchingPrefix;
+            }
         }
 
         // Parse the command name.
@@ -1175,15 +1188,10 @@ const Client = struct {
             try self._processCommand_PRIVMSG(&lexer);
         } else {
             // Send ERR_UNKNOWNCOMMAND.
-            var ec: bool = undefined;
             self._sendMessage(
                 &ec,
                 ":{} 421 {} {} :Unknown command",
-                .{
-                    self._user._server.getHostName(),
-                    CE(self._user.getNickName(), &ec),
-                    CE(command, &ec),
-                },
+                .{ self._user._server.getHostName(), CE(nickname, &ec), CE(command, &ec) },
             );
         }
     }
