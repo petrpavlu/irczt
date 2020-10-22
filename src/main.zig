@@ -1094,26 +1094,29 @@ const Client = struct {
         const nickname = self._user.getNickName();
         var ec: bool = undefined;
 
-        // Try matching msgtarget with a channel name.
-        const maybe_channel = self._user._server.lookupChannel(msgtarget);
-        if (maybe_channel) |channel| {
-            channel.sendPrivMsg(&self._user, text);
-            return;
-        }
+        var sub_lexer = Lexer.init(msgtarget);
+        while (sub_lexer.readListItem()) |msgto| {
+            // Try matching msgto with a channel name.
+            const maybe_channel = self._user._server.lookupChannel(msgto);
+            if (maybe_channel) |channel| {
+                channel.sendPrivMsg(&self._user, text);
+                continue;
+            }
 
-        // Try matching msgtarget with a user nick.
-        const maybe_user = self._user._server.lookupUser(msgtarget);
-        if (maybe_user) |user| {
-            user.sendPrivMsg(nickname, msgtarget, text);
-            return;
-        }
+            // Try matching msgto with a user nick.
+            const maybe_user = self._user._server.lookupUser(msgto);
+            if (maybe_user) |user| {
+                user.sendPrivMsg(nickname, msgto, text);
+                continue;
+            }
 
-        // Send ERR_NOSUCHNICK.
-        self._sendMessage(
-            &ec,
-            ":{} 401 {} {} :No such nick/channel",
-            .{ CE(hostname, &ec), CE(nickname, &ec), CE(msgtarget, &ec) },
-        );
+            // Send ERR_NOSUCHNICK.
+            self._sendMessage(
+                &ec,
+                ":{} 401 {} {} :No such nick/channel",
+                .{ CE(hostname, &ec), CE(nickname, &ec), CE(msgto, &ec) },
+            );
+        }
     }
 
     /// Send a message to the client.
