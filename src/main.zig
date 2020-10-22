@@ -789,10 +789,10 @@ const Client = struct {
             return;
         }
 
-        const username = try self._acceptParam(lexer, "USER", .Mandatory);
-        const hostname = try self._acceptParam(lexer, "USER", .Mandatory);
-        const servername = try self._acceptParam(lexer, "USER", .Mandatory);
-        const realname = try self._acceptParam(lexer, "USER", .Mandatory);
+        const username = self._acceptParam(lexer, "USER", .Mandatory) catch return;
+        const hostname = self._acceptParam(lexer, "USER", .Mandatory) catch return;
+        const servername = self._acceptParam(lexer, "USER", .Mandatory) catch return;
+        const realname = self._acceptParam(lexer, "USER", .Mandatory) catch return;
         self._acceptEndOfMessage(lexer, "USER");
 
         self._user._user(username, realname) catch |err| {
@@ -957,7 +957,7 @@ const Client = struct {
     fn _processCommand_JOIN(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        const channel_list = try self._acceptParam(lexer, "JOIN", .Mandatory);
+        const channel_list = self._acceptParam(lexer, "JOIN", .Mandatory) catch return;
         self._acceptEndOfMessage(lexer, "JOIN");
 
         const hostname = self._user._server.getHostName();
@@ -1001,7 +1001,7 @@ const Client = struct {
     fn _processCommand_PART(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        const channel_list = try self._acceptParam(lexer, "PART", .Mandatory);
+        const channel_list = self._acceptParam(lexer, "PART", .Mandatory) catch return;
         const part_message = self._acceptParamOrDefault(lexer, "PART", self._user.getNickName());
         self._acceptEndOfMessage(lexer, "PART");
 
@@ -1043,7 +1043,7 @@ const Client = struct {
     fn _processCommand_WHO(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        const name = try self._acceptParam(lexer, "WHO", .Mandatory);
+        const name = self._acceptParam(lexer, "WHO", .Mandatory) catch return;
         self._acceptEndOfMessage(lexer, "WHO");
 
         const hostname = self._user._server.getHostName();
@@ -1088,8 +1088,8 @@ const Client = struct {
     fn _processCommand_PRIVMSG(self: *Client, lexer: *Lexer) !void {
         self._checkRegistered() catch return;
 
-        const msgtarget = try self._acceptParam(lexer, "PRIVMSG", .Mandatory);
-        const text = try self._acceptParam(lexer, "PRIVMSG", .Mandatory);
+        const msgtarget = self._acceptParam(lexer, "PRIVMSG", .Mandatory) catch return;
+        const text = self._acceptParam(lexer, "PRIVMSG", .Mandatory) catch return;
         self._acceptEndOfMessage(lexer, "PRIVMSG");
 
         const hostname = self._user._server.getHostName();
