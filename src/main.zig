@@ -593,7 +593,6 @@ const Client = struct {
         self._info("Destroying the client.\n", .{});
 
         os.close(self._fd);
-        self._info("Closed client connection.\n", .{});
 
         const allocator = self._user._server.getAllocator();
         self._user.deinit();
