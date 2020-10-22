@@ -523,8 +523,7 @@ const User = struct {
                 return Client.fromUser(self)._sendPrivMsg(from, to, text);
             },
             .LocalBot => {
-                // TODO Implement.
-                //unreachable;
+                // Ignore because local bots do not care about received private messages.
             },
         }
     }
@@ -1915,7 +1914,6 @@ const Server = struct {
             }
 
             // Handle the event.
-            // TODO Handle error events.
             switch (events[0].data.ptr) {
                 0 => self._acceptClient(epfd, listenfd),
                 1 => {
