@@ -539,16 +539,13 @@ const Client = struct {
     const InputState = enum {
         Normal,
         Normal_CR,
-        Invalid,
-        Invalid_CR,
     };
 
     const AcceptParamError = error{MissingParameter};
     const CheckRegisteredError = error{NotRegistered};
 
     const InputError = error{
-        NonMatchingPrefix,
-        MissingCommand,
+        MalformedMessage,
         EndOfFile,
         Quit,
     };
@@ -1143,8 +1140,6 @@ const Client = struct {
 
     /// Process a single message from the client.
     fn _processMessage(self: *Client, message: []const u8) !void {
-        self._info("< {}\n", .{E(message)});
-
         var lexer = Lexer.init(message);
         const hostname = self._user._server.getHostName();
         const nickname = self._user.getNickName();
@@ -1155,23 +1150,15 @@ const Client = struct {
         if (lexer.getCurChar() == ':') {
             const prefix = lexer.readWord() orelse unreachable;
             if (!mem.eql(u8, prefix[1..], nickname)) {
-                self._sendMessage(
-                    &ec,
-                    "ERROR :Message prefix '{}' does not match the nickname '{}'",
-                    .{ CE(prefix[1..], &ec), CE(nickname, &ec) },
-                );
-                return Client.InputError.NonMatchingPrefix;
+                self._sendMessage(null, "ERROR :Message prefix does not match the nickname", .{});
+                return Client.InputError.MalformedMessage;
             }
         }
 
         // Parse the command name.
         const command = lexer.readWord() orelse {
-            self._sendMessage(
-                &ec,
-                "ERROR :No command specified in the message '{}'",
-                .{CE(message, &ec)},
-            );
-            return Client.InputError.MissingCommand;
+            self._sendMessage(null, "ERROR :No command specified in the message", .{});
+            return Client.InputError.MalformedMessage;
         };
 
         // Process the command.
@@ -1201,7 +1188,8 @@ const Client = struct {
         }
     }
 
-    /// Read new input available on client's socket and process it.
+    /// Read new input available on the client socket and process it. When an error is returned, no
+    /// further calls to processInput() are allowed and the client should be destroyed.
     fn processInput(self: *Client) !void {
         assert(self._input_received < self._input_buffer.len);
         var pos = self._input_received;
@@ -1227,60 +1215,41 @@ const Client = struct {
                     if (char == '\r') {
                         self._input_state = .Normal_CR;
                     }
-                    // TODO Check for invalid chars.
                 },
                 .Normal_CR => {
                     if (char == '\n') {
-                        const res = self._processMessage(self._input_buffer[message_begin .. pos - 1]);
-                        self._input_state = .Normal;
-                        message_begin = pos + 1;
-                        // TODO Keep the client buffers in consistent state even on error.
-                        if (res) {} else |err| return err;
-                    } else {
-                        // TODO Print an error message.
-                        self._input_state = .Invalid;
-                    }
-                },
-                .Invalid => {
-                    if (char == '\r') {
-                        self._input_state = .Invalid_CR;
-                    }
-                },
-                .Invalid_CR => {
-                    if (char == '\n') {
+                        const message = self._input_buffer[message_begin .. pos - 1];
+                        self._info("< {}\n", .{E(message)});
+                        try self._processMessage(message);
                         self._input_state = .Normal;
                         message_begin = pos + 1;
                     } else {
-                        self._input_state = .Invalid;
+                        self._info("< {}\n", .{E(self._input_buffer[message_begin .. pos + 1])});
+                        self._sendMessage(
+                            null,
+                            "ERROR :Message is not terminated by the \\r\\n pair",
+                            .{},
+                        );
+                        return Client.InputError.MalformedMessage;
                     }
                 },
             }
         }
 
-        switch (self._input_state) {
-            .Normal, .Normal_CR => {
-                if (message_begin >= self._input_received) {
-                    assert(message_begin == self._input_received);
-                    self._input_received = 0;
-                } else if (message_begin == 0) {
-                    // TODO Message overflow.
-                    if (self._input_state == .Normal) {
-                        self._input_state = .Invalid;
-                    } else {
-                        self._input_state = .Invalid_CR;
-                    }
-                } else {
-                    mem.copy(
-                        u8,
-                        self._input_buffer[0..],
-                        self._input_buffer[message_begin..self._input_received],
-                    );
-                    self._input_received -= message_begin;
-                }
-            },
-            .Invalid, .Invalid_CR => {
-                self._input_received = 0;
-            },
+        if (message_begin >= self._input_received) {
+            assert(message_begin == self._input_received);
+            self._input_received = 0;
+        } else if (message_begin == 0 and self._input_received == self._input_buffer.len) {
+            self._info("< {}\n", .{E(self._input_buffer[0..])});
+            self._sendMessage(null, "ERROR :Message is too long", .{});
+            return Client.InputError.MalformedMessage;
+        } else {
+            mem.copy(
+                u8,
+                self._input_buffer[0..],
+                self._input_buffer[message_begin..self._input_received],
+            );
+            self._input_received -= message_begin;
         }
     }
 
