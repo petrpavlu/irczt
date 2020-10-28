@@ -8,6 +8,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
+/// Type-generic map implemented as an AVL tree.
 pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) bool) type {
     return struct {
         const Self = @This();
@@ -16,19 +17,23 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
         _root: ?*_Node,
         _size: usize,
 
+        /// Key+value pair.
         const KeyValue = struct {
             _key: Key,
             _value: Value,
 
+            /// Obtain the key.
             pub fn key(self: KeyValue) Key {
                 return self._key;
             }
 
+            /// Obtain the value.
             pub fn value(self: KeyValue) Value {
                 return self._value;
             }
         };
 
+        /// Internal tree node.
         const _Node = struct {
             _kv: KeyValue,
             _parent: ?*_Node,
@@ -37,10 +42,11 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             _balance: i2,
         };
 
+        /// Map iterator.
         const Iterator = struct {
             _node: ?*_Node,
 
-            /// Return the current value and increment the iterator.
+            /// Return the current value and advance the iterator.
             pub fn next(self: *Iterator) ?*KeyValue {
                 if (self._node == null) {
                     return null;
@@ -75,17 +81,20 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
                 return self._node != null;
             }
 
+            /// Obtain the current key.
             pub fn key(self: Iterator) Key {
                 assert(self._node != null);
                 return self._node.?._kv._key;
             }
 
+            /// Obtain the current value.
             pub fn value(self: Iterator) Value {
                 assert(self._node != null);
                 return self._node.?._kv._value;
             }
         };
 
+        /// Construct a new Map.
         pub fn init(allocator: *Allocator) Self {
             return Self{
                 ._allocator = allocator,
@@ -94,10 +103,12 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             };
         }
 
+        /// Finalize the map.
         pub fn deinit(self: *Self) void {
             self.clear();
         }
 
+        /// Clear the map by removing all its nodes.
         pub fn clear(self: *Self) void {
             if (self._root == null) {
                 assert(self._size == 0);
@@ -142,6 +153,8 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             self._size = 0;
         }
 
+        /// Insert a new key+value pair in the map. Upon successful completion, an iterator pointing
+        /// to the inserted pair is returned. Otherwise, an error is returned.
         pub fn insert(self: *Self, key: Key, value: Value) !Iterator {
             // Allocate a new node.
             const node = try self._allocator.create(_Node);
@@ -187,6 +200,7 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             return Iterator{ ._node = node };
         }
 
+        /// Remove the key+value pair pointed by a specified iterator from the map.
         pub fn remove(self: *Self, iter: Iterator) void {
             const node = iter._node.?;
             const maybe_left_node = node._left;
@@ -285,6 +299,9 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             self._allocator.destroy(node);
         }
 
+        /// Find the key+value pair that matches a specified key. Upon successful completion, an
+        /// iterator pointing to the found pair is returned. Otherwise, an invalid iterator is
+        /// returned.
         pub fn find(self: *const Self, key: Key) Iterator {
             var maybe_node = self._root;
             while (maybe_node) |node| {
@@ -299,6 +316,7 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             return Iterator{ ._node = null };
         }
 
+        /// Obtain an iterator to traverse the map.
         pub fn iterator(self: *const Self) Iterator {
             if (self._root == null) {
                 return Iterator{ ._node = null };
@@ -311,6 +329,7 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
             return Iterator{ ._node = node };
         }
 
+        /// Return a number of key+value pairs currently inserted in the map.
         pub fn count(self: *const Self) usize {
             return self._size;
         }
@@ -550,6 +569,7 @@ pub fn Map(comptime Key: type, comptime Value: type, lessThan: fn (Key, Key) boo
     };
 }
 
+/// Instantiate a less-than function for a given type.
 pub fn getLessThanFn(comptime T: type) fn (T, T) bool {
     return struct {
         fn lessThan(lhs: T, rhs: T) bool {

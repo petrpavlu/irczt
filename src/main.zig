@@ -19,7 +19,7 @@ const config = @import("config.zig");
 
 const timestamp_str_width = "[18446744073709551.615]".len;
 
-/// Convert timestamp to a string.
+/// Convert a specified timestamp to a human-readable format.
 fn formatTimeStamp(output: *[timestamp_str_width]u8, milliseconds: u64) void {
     var rem = milliseconds;
     var i = timestamp_str_width;
@@ -68,7 +68,7 @@ test "format timestamp" {
     expect(mem.eql(u8, buffer[0..], "[18446744073709551.615]"));
 }
 
-/// Print a message on the standard output.
+/// Format and print an info message on the standard output.
 fn info(comptime fmt: []const u8, args: anytype) void {
     var timestamp: [timestamp_str_width]u8 = undefined;
     formatTimeStamp(&timestamp, @intCast(u64, time.milliTimestamp()));
@@ -76,7 +76,7 @@ fn info(comptime fmt: []const u8, args: anytype) void {
     writer.print("{} " ++ fmt, .{timestamp} ++ args) catch return;
 }
 
-/// Print a message on the standard error output.
+/// Format and print a warning message on the standard error output.
 fn warn(comptime fmt: []const u8, args: anytype) void {
     var timestamp: [timestamp_str_width]u8 = undefined;
     formatTimeStamp(&timestamp, @intCast(u64, time.milliTimestamp()));
@@ -84,19 +84,23 @@ fn warn(comptime fmt: []const u8, args: anytype) void {
     writer.print("\x1b[31m{} " ++ fmt ++ "\x1b[0m", .{timestamp} ++ args) catch return;
 }
 
-/// Thin wrapper for character slices to output non-printable characters as escaped values with
+/// Thin wrapper for a character slice to output non-printable characters as escaped values with
 /// std.fmt.
 const EscapeFormatter = struct {
+    /// Managed slice.
     _slice: []const u8,
 
+    /// Construct an EscapeFormatter.
     fn init(slice: []const u8) EscapeFormatter {
         return EscapeFormatter{ ._slice = slice };
     }
 
+    /// Return the managed slice.
     fn getSlice(self: *const EscapeFormatter) []const u8 {
         return self._slice;
     }
 
+    /// Format and output the slice.
     pub fn format(
         self: EscapeFormatter,
         comptime fmt: []const u8,
@@ -128,11 +132,16 @@ fn E(slice: []const u8) EscapeFormatter {
     return EscapeFormatter.init(slice);
 }
 
-/// Conditional escape provider.
+/// Conditional variant of EscapeFormatter.
 const ConditionalEscapeFormatter = struct {
+    /// Wrapped EscapeFormatter.
     _escape: EscapeFormatter,
+
+    /// Pointer to an outside flag that controls whether the slice should be escaped during the
+    /// format() call or not.
     _cond: *bool,
 
+    /// Construct a ConditionalEscapeFormatter.
     fn init(slice: []const u8, cond: *bool) ConditionalEscapeFormatter {
         return ConditionalEscapeFormatter{
             ._escape = EscapeFormatter.init(slice),
@@ -140,6 +149,7 @@ const ConditionalEscapeFormatter = struct {
         };
     }
 
+    /// Format and output the slice.
     pub fn format(
         self: ConditionalEscapeFormatter,
         comptime fmt: []const u8,
@@ -163,8 +173,12 @@ fn CE(slice: []const u8, cond: *bool) ConditionalEscapeFormatter {
     return ConditionalEscapeFormatter.init(slice, cond);
 }
 
+/// Lexical analyzer for IRC messages and list parameters.
 const Lexer = struct {
+    /// Input string.
     _string: []const u8,
+
+    /// Current position in the input string.
     _pos: usize,
 
     /// Construct a Lexer.
@@ -206,7 +220,7 @@ const Lexer = struct {
         }
     }
 
-    /// Read one word starting at the current position.
+    /// Read one word starting at exactly the current position.
     fn _readWordNow(self: *Lexer) ?[]const u8 {
         const begin = self._pos;
         var end = begin;
@@ -266,32 +280,33 @@ const Lexer = struct {
     }
 };
 
+/// User on the server. This is the base type for a remote Client or an artificial LocalBot.
 const User = struct {
     const Type = enum {
         Client,
         LocalBot,
     };
 
+    /// User type.
     _type: Type,
 
+    /// Parent server.
     _server: *Server,
 
     /// Unique nick name (owned).
     _nickname: ?[]u8,
 
-    /// User name (owned).
+    /// Username (owned).
     _username: ?[]u8,
 
-    /// Real name (owned).
+    /// Realname (owned).
     _realname: ?[]u8,
 
     /// Joined channels.
     _channels: ChannelSet,
 
-    fn init(
-        type_: Type,
-        server: *Server,
-    ) User {
+    /// Construct a new User.
+    fn init(type_: Type, server: *Server) User {
         const allocator = server.getAllocator();
 
         return User{
@@ -304,6 +319,7 @@ const User = struct {
         };
     }
 
+    /// Quit the server and destroy the user.
     fn deinit(self: *User) void {
         // Quit all channels.
         self._quit("Client quit");
@@ -322,7 +338,8 @@ const User = struct {
         }
     }
 
-    /// Quit the server.
+    /// Quit the server. The operation leaves all joined channels and informs their members about
+    /// the quit.
     fn _quit(self: *User, quit_message: []const u8) void {
         // Send a QUIT message to users in all joined channels.
         if (self._channels.count() == 0) {
@@ -370,10 +387,12 @@ const User = struct {
         self._channels.clear();
     }
 
+    /// Obtain the current nickname or "*" if the name has not been set yet.
     fn getNickName(self: *const User) []const u8 {
         return if (self._nickname) |nickname| nickname else "*";
     }
 
+    /// Return whether the user has its nickname set.
     fn hasNickName(self: *const User) bool {
         return self._nickname != null;
     }
@@ -394,7 +413,7 @@ const User = struct {
         errdefer allocator.free(nickname_copy);
         mem.copy(u8, nickname_copy, nickname);
 
-        // Tell the server about the new nick name.
+        // Tell the server about the new nickname.
         // TODO Fix passing of the self._nickname parameter which is a workaround for a bug in the
         // Zig compiler.
         try self._server.recordNickNameChange(
@@ -410,14 +429,17 @@ const User = struct {
         self._nickname = nickname_copy;
     }
 
+    /// Obtain the current username or "*" if the name has not been set yet.
     fn getUserName(self: *const User) []const u8 {
         return if (self._username) |username| username else "*";
     }
 
+    /// Obtain the current realname or "*" if the name has not been set yet.
     fn getRealName(self: *const User) []const u8 {
         return if (self._realname) |realname| realname else "*";
     }
 
+    /// Set a new username and realname.
     fn _user(self: *User, username: []const u8, realname: []const u8) !void {
         const allocator = self._server.getAllocator();
 
@@ -455,6 +477,7 @@ const User = struct {
         self._realname = realname_copy;
     }
 
+    /// Format and print an info message on the standard output.
     fn _info(self: *const User, comptime fmt: []const u8, args: anytype) void {
         switch (self._type) {
             .Client => {
@@ -466,6 +489,7 @@ const User = struct {
         }
     }
 
+    /// Format and print a warning message on the standard error output.
     fn _warn(self: *const User, comptime fmt: []const u8, args: anytype) void {
         switch (self._type) {
             .Client => {
@@ -501,6 +525,19 @@ const User = struct {
         self._channels.remove(channel_iter);
     }
 
+    /// Send a private message to the user.
+    fn sendPrivMsg(self: *User, from: []const u8, to: []const u8, text: []const u8) void {
+        switch (self._type) {
+            .Client => {
+                return Client.fromUser(self)._sendPrivMsg(from, to, text);
+            },
+            .LocalBot => {
+                // Ignore because local bots do not care about received private messages.
+            },
+        }
+    }
+
+    /// Send an IRC protocol message to the user.
     fn sendMessage(
         self: *User,
         escape_cond: ?*bool,
@@ -513,17 +550,6 @@ const User = struct {
             },
             .LocalBot => {
                 // Ignore because local bots do not send messages anywhere.
-            },
-        }
-    }
-
-    fn sendPrivMsg(self: *User, from: []const u8, to: []const u8, text: []const u8) void {
-        switch (self._type) {
-            .Client => {
-                return Client.fromUser(self)._sendPrivMsg(from, to, text);
-            },
-            .LocalBot => {
-                // Ignore because local bots do not care about received private messages.
             },
         }
     }
@@ -552,18 +578,26 @@ const Client = struct {
     /// User definition.
     _user: User,
 
+    /// Client's socket.
     _fd: i32,
+    /// Client's network address.
     _addr: net.Address,
 
+    /// Writer to the client's socket.
     _file_writer: fs.File.Writer,
+    /// Reader from the client's socket.
     _file_reader: fs.File.Reader,
 
-    _input_state: InputState,
+    /// Input buffer for IRC messages.
     _input_buffer: [512]u8,
+    /// Number of bytes currently stored in _input_buffer that compose an incomplete message.
     _input_received: usize,
+    /// Current input state at the _input_received position.
+    _input_state: InputState,
 
-    /// Create a new client instance, which takes ownership for the passed client descriptor. If
-    /// constructing the client fails, the file descriptor gets closed.
+    /// Create a new Client instance. Ownership of a specified client descriptor is transferred to
+    /// the created instance. If constructing the client fails, the file descriptor gets closed by
+    /// the function.
     fn create(fd: i32, addr: net.Address, server: *Server) !*Client {
         errdefer os.close(fd);
 
@@ -581,14 +615,14 @@ const Client = struct {
             ._addr = addr,
             ._file_writer = file.writer(),
             ._file_reader = file.reader(),
-            ._input_state = .Normal,
             ._input_buffer = undefined,
             ._input_received = 0,
+            ._input_state = .Normal,
         };
         return client;
     }
 
-    /// Close connection to a client and destroy the client data.
+    /// Close the remote client connection and destroy the client.
     fn destroy(self: *Client) void {
         self._info("Destroying the client.\n", .{});
 
@@ -599,16 +633,19 @@ const Client = struct {
         allocator.destroy(self);
     }
 
+    /// Get a Client base pointer given a pointer to its embedded User member.
     fn fromUser(user: *User) *Client {
         assert(user._type == .Client);
         return @fieldParentPtr(Client, "_user", user);
     }
 
+    /// Get a const Client base pointer given a const pointer to its embedded User member.
     fn fromConstUser(user: *const User) *const Client {
         assert(user._type == .Client);
         return @fieldParentPtr(Client, "_user", user);
     }
 
+    /// Get a pointer to the embedded User member.
     fn toUser(self: *Client) *User {
         return &self._user;
     }
@@ -618,17 +655,20 @@ const Client = struct {
         return self._fd;
     }
 
+    /// Format and print an info message on the standard output.
     fn _info(self: *const Client, comptime fmt: []const u8, args: anytype) void {
         info("{}: " ++ fmt, .{self._addr} ++ args);
     }
 
+    /// Format and print a warning message on the standard error output.
     fn _warn(self: *const Client, comptime fmt: []const u8, args: anytype) void {
         warn("{}: " ++ fmt, .{self._addr} ++ args);
     }
 
-    /// Read one parameter from the message. If the parameter is missing then return
-    /// AcceptParamError.MissingParameter. If the parameter is additionally marked as mandatory then
-    /// send an error reply to the user.
+    /// Read one parameter from a specified message (lexer). Upon successful completion, a slice
+    /// with the parameter is returned. Otherwise, error AcceptParamError.MissingParameter is
+    /// returned. If the parameter is additionally marked as mandatory then an error reply is sent
+    /// to the user.
     fn _acceptParam(
         self: *Client,
         lexer: *Lexer,
@@ -656,8 +696,8 @@ const Client = struct {
         return AcceptParamError.MissingParameter;
     }
 
-    /// Read an optional parameter from the message. If it is missing then return a specified
-    /// default value.
+    /// Read an optional parameter from a specified message (lexer). If it is missing then a given
+    /// default value is returned instead.
     fn _acceptParamOrDefault(
         self: *Client,
         lexer: *Lexer,
@@ -673,7 +713,8 @@ const Client = struct {
         };
     }
 
-    /// Check that end of the message has been reached. If not then report a warning.
+    /// Check that the end of a specified message (lexer) has been reached. A warning is reported if
+    /// that is not the case.
     fn _acceptEndOfMessage(self: *Client, lexer: *Lexer, command: []const u8) void {
         if (lexer.isAtEnd())
             return;
@@ -806,7 +847,7 @@ const Client = struct {
         }
     }
 
-    /// Complete the client join after the initial USER and NICK pair is received.
+    /// Complete join of the client after the initial USER and NICK pair is received.
     fn _completeRegistration(self: *Client) void {
         assert(self._user._nickname != null);
         assert(self._user._username != null);
@@ -849,9 +890,9 @@ const Client = struct {
         );
     }
 
-    /// Check whether the user has completed the initial registration and is fully joined. If not
-    /// then send ERR_NOTREGISTERED to the client and return
-    /// Client.CheckRegisteredError.NotRegistered.
+    /// Check that the user has completed the initial registration and is fully joined. If that is
+    /// not the case then reply ERR_NOTREGISTERED is sent to the client and
+    /// error CheckRegisteredError.NotRegistered is returned.
     fn _checkRegistered(self: *Client) !void {
         assert((self._user._username != null) == (self._user._realname != null));
         if (self._user._nickname != null and self._user._username != null) {
@@ -1117,28 +1158,6 @@ const Client = struct {
         }
     }
 
-    /// Send a message to the client.
-    fn _sendMessage(
-        self: *Client,
-        maybe_escape_cond: ?*bool,
-        comptime fmt: []const u8,
-        args: anytype,
-    ) void {
-        if (maybe_escape_cond) |escape_cond| {
-            escape_cond.* = true;
-        }
-        self._info("> " ++ fmt ++ "\n", args);
-        if (maybe_escape_cond) |escape_cond| {
-            escape_cond.* = false;
-        }
-        self._file_writer.print(fmt ++ "\r\n", args) catch |err| {
-            self._warn(
-                "Failed to write the message into the client socket (fd '{}'): {}.\n",
-                .{ self._file_writer.context.handle, @errorName(err) },
-            );
-        };
-    }
-
     /// Process a single message from the client.
     fn _processMessage(self: *Client, message: []const u8) !void {
         var lexer = Lexer.init(message);
@@ -1189,14 +1208,14 @@ const Client = struct {
         }
     }
 
-    /// Read new input available on the client socket and process it. When an error is returned, no
-    /// further calls to processInput() are allowed and the client should be destroyed.
+    /// Read new input available on the client's socket and process it. When an error is returned,
+    /// no further calls to processInput() are allowed and the client should be destroyed.
     fn processInput(self: *Client) !void {
         assert(self._input_received < self._input_buffer.len);
         var pos = self._input_received;
         const read = self._file_reader.read(self._input_buffer[pos..]) catch |err| {
             self._warn(
-                "Failed to read input from the client socket (fd '{}'): {}.\n",
+                "Failed to read input from the client's socket (fd '{}'): {}.\n",
                 .{ self._file_reader.context.handle, @errorName(err) },
             );
             return err;
@@ -1254,6 +1273,7 @@ const Client = struct {
         }
     }
 
+    /// Send a private message to the client.
     fn _sendPrivMsg(self: *Client, from: []const u8, to: []const u8, text: []const u8) void {
         var ec: bool = undefined;
 
@@ -1262,6 +1282,28 @@ const Client = struct {
             ":{} PRIVMSG {} :{}",
             .{ CE(from, &ec), CE(to, &ec), CE(text, &ec) },
         );
+    }
+
+    /// Send an IRC protocol message to the client.
+    fn _sendMessage(
+        self: *Client,
+        maybe_escape_cond: ?*bool,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) void {
+        if (maybe_escape_cond) |escape_cond| {
+            escape_cond.* = true;
+        }
+        self._info("> " ++ fmt ++ "\n", args);
+        if (maybe_escape_cond) |escape_cond| {
+            escape_cond.* = false;
+        }
+        self._file_writer.print(fmt ++ "\r\n", args) catch |err| {
+            self._warn(
+                "Failed to write the message into the client's socket (fd '{}'): {}.\n",
+                .{ self._file_writer.context.handle, @errorName(err) },
+            );
+        };
     }
 };
 
@@ -1284,7 +1326,7 @@ const LocalBot = struct {
     /// Average message length.
     _message_length: u8,
 
-    /// Create a new local bot instance.
+    /// Create a new LocalBot instance.
     fn create(
         nickname: []const u8,
         channels_target: u8,
@@ -1313,6 +1355,7 @@ const LocalBot = struct {
         return local_bot;
     }
 
+    /// Destroy the local bot.
     fn destroy(self: *LocalBot) void {
         self._info("Destroying the local bot.\n", .{});
 
@@ -1321,30 +1364,36 @@ const LocalBot = struct {
         allocator.destroy(self);
     }
 
+    /// Get a LocalBot base pointer given a pointer to its embedded User member.
     fn fromUser(user: *User) *LocalBot {
         assert(user._type == .LocalBot);
         return @fieldParentPtr(LocalBot, "_user", user);
     }
 
+    /// Get a const LocalBot base pointer given a const pointer to its embedded User member.
     fn fromConstUser(user: *const User) *const LocalBot {
         assert(user._type == .LocalBot);
         return @fieldParentPtr(LocalBot, "_user", user);
     }
 
+    /// Format and print an info message on the standard output.
     fn _info(self: *const LocalBot, comptime fmt: []const u8, args: anytype) void {
         const nickname = E(self._user.getNickName());
         info("{}: " ++ fmt, .{nickname} ++ args);
     }
 
+    /// Format and print a warning message on the standard error output.
     fn _warn(self: *const LocalBot, comptime fmt: []const u8, args: anytype) void {
         const nickname = E(self._user.getNickName());
         warn("{}: " ++ fmt, .{nickname} ++ args);
     }
 
+    /// Simulate the NICK registration command.
     fn register_NICK(self: *LocalBot, nickname: []const u8) !void {
         return self._user._nick(nickname);
     }
 
+    /// Simulate the USER registration command.
     fn register_USER(self: *LocalBot, username: []const u8, realname: []const u8) !void {
         return self._user._user(username, realname);
     }
@@ -1446,6 +1495,7 @@ const LocalBot = struct {
 const LocalBotSet = avl.Map(*LocalBot, void, avl.getLessThanFn(*LocalBot));
 
 const Channel = struct {
+    /// Parent server.
     _server: *Server,
 
     /// Channel name (owned).
@@ -1457,7 +1507,7 @@ const Channel = struct {
     /// Users in the channel.
     _members: UserSet,
 
-    /// Create a new channel with the given name.
+    /// Create a new Channel instance.
     fn create(name: []const u8, server: *Server) !*Channel {
         info("{}: Creating the channel.\n", .{E(name)});
 
@@ -1491,6 +1541,7 @@ const Channel = struct {
         return channel;
     }
 
+    /// Destroy the channel. All members need to leave prior to calling this function.
     fn destroy(self: *Channel) void {
         self._info("Destroying the channel.\n", .{});
 
@@ -1507,23 +1558,28 @@ const Channel = struct {
         allocator.destroy(self);
     }
 
+    /// Obtain the channel name.
     fn getName(self: *const Channel) []const u8 {
         return self._name;
     }
 
+    /// Obtain a topic set in the channel.
     fn getTopic(self: *const Channel) []const u8 {
         return if (self._topic) |topic| topic else "";
     }
 
+    /// Obtain a set of users currently present in the channel.
     fn getMembers(self: *const Channel) *const UserSet {
         return &self._members;
     }
 
+    /// Format and print an info message on the standard output.
     fn _info(self: *const Channel, comptime fmt: []const u8, args: anytype) void {
         const name = E(self._name);
         info("{}: " ++ fmt, .{name} ++ args);
     }
 
+    /// Format and print a warning message on the standard error output.
     fn _warn(self: *const Channel, comptime fmt: []const u8, args: anytype) void {
         const name = E(self._name);
         warn("{}: " ++ fmt, .{name} ++ args);
@@ -1694,6 +1750,7 @@ const Server = struct {
     /// All channels (owned). Keys (names) are owned by respective Channel instances.
     _channels: ChannelNameSet,
 
+    /// Create a new Server instance.
     fn create(
         address: []const u8,
         word_bank: []const []const u8,
@@ -1765,6 +1822,7 @@ const Server = struct {
         return server;
     }
 
+    /// Destroy the server, including all associated users and channels.
     fn destroy(self: *Server) void {
         // Destroy all clients.
         var client_iter = self._clients.iterator();
@@ -1812,18 +1870,22 @@ const Server = struct {
         return self._word_bank;
     }
 
+    /// Obtain the server's hostname.
     fn getHostName(self: *const Server) []const u8 {
         return self._host;
     }
 
+    /// Obtain registered users on the server.
     fn getUsers(self: *Server) *const UserNameSet {
         return &self._users;
     }
 
+    /// Obtain channels on the server.
     fn getChannels(self: *Server) *const ChannelNameSet {
         return &self._channels;
     }
 
+    /// Run the server.
     fn run(self: *Server) !void {
         // Create the server socket.
         const listenfd = os.socket(
@@ -2014,13 +2076,13 @@ const Server = struct {
         }
     }
 
-    /// Find a user by name.
+    /// Find a user that has a specified nickname.
     fn lookupUser(self: *Server, name: []const u8) ?*User {
         const user_iter = self._users.find(name);
         return if (user_iter.valid()) user_iter.value() else null;
     }
 
-    /// Create a new channel with the given name.
+    /// Create a new channel with a specified name.
     fn createChannel(self: *Server, name: []const u8) !void {
         const channel = try Channel.create(name, self);
         errdefer channel.destroy();
@@ -2034,13 +2096,13 @@ const Server = struct {
         };
     }
 
-    /// Find a channel by name.
+    /// Find a channel that has a specified name.
     fn lookupChannel(self: *Server, name: []const u8) ?*Channel {
         const channel_iter = self._channels.find(name);
         return if (channel_iter.valid()) channel_iter.value() else null;
     }
 
-    /// Create a new local bot with the given name.
+    /// Create a new local bot with a specified name.
     fn createLocalBot(
         self: *Server,
         nickname: []const u8,
@@ -2077,6 +2139,7 @@ const Server = struct {
     }
 };
 
+/// Select a random number from a specified range.
 fn selectFromConfigRange(rng: *rand.Random, comptime T: type, range: *const config.Range(T)) T {
     switch (T) {
         u8 => {
