@@ -1119,6 +1119,41 @@ const Client = struct {
         );
     }
 
+    /// Process the TOPIC command.
+    /// RFC 1459: Parameters: <channel> [<topic>]
+    /// RFC 2812: Parameters: <channel> [ <topic> ]
+    ///    IRCZT: Parameters: <channel> [ <topic> ]
+    fn _processCommand_TOPIC(self: *Client, lexer: *Lexer) !void {
+        self._checkRegistered() catch return;
+
+        const channel_name = self._acceptParam(lexer, "TOPIC", .Mandatory) catch return;
+        const maybe_topic = self._acceptParam(lexer, "TOPIC", .Optional) catch null;
+        self._acceptEndOfMessage(lexer, "TOPIC");
+
+        const hostname = self._user._server.getHostName();
+        const nickname = self._user.getNickName();
+        var ec: bool = undefined;
+
+        const channel = self._user._server.lookupChannel(channel_name) orelse {
+            // Send ERR_NOSUCHCHANNEL.
+            self._sendMessage(
+                &ec,
+                ":{} 403 {} {} :No such channel",
+                .{ CE(hostname, &ec), CE(nickname, &ec), CE(channel_name, &ec) },
+            );
+            return;
+        };
+
+        channel.topicate(&self._user, maybe_topic) catch |err| {
+            self._sendMessage(
+                null,
+                "ERROR :TOPIC command failed on the server: {}",
+                .{@errorName(err)},
+            );
+            return err;
+        };
+    }
+
     /// Process the PRIVMSG command.
     /// RFC 1459: Parameters: <receiver>{,<receiver>} <text to be sent>
     /// RFC 2812: Parameters: <msgtarget> <text to be sent>
@@ -1197,6 +1232,8 @@ const Client = struct {
             try self._processCommand_PART(&lexer);
         } else if (mem.eql(u8, command, "WHO")) {
             try self._processCommand_WHO(&lexer);
+        } else if (mem.eql(u8, command, "TOPIC")) {
+            try self._processCommand_TOPIC(&lexer);
         } else if (mem.eql(u8, command, "PRIVMSG")) {
             try self._processCommand_PRIVMSG(&lexer);
         } else {
@@ -1586,6 +1623,34 @@ const Channel = struct {
         warn("{}: " ++ fmt, .{name} ++ args);
     }
 
+    /// Send information about the current topic to a specified user.
+    fn _sendTopic(self: *const Channel, user: *User) void {
+        const nickname = user.getNickName();
+        const hostname = self._server.getHostName();
+        var ec: bool = undefined;
+
+        if (self._topic) |topic| {
+            // Send RPL_TOPIC.
+            user.sendMessage(
+                &ec,
+                ":{} 332 {} {} :{}",
+                .{
+                    CE(hostname, &ec),
+                    CE(nickname, &ec),
+                    CE(self._name, &ec),
+                    CE(topic, &ec),
+                },
+            );
+        } else {
+            // Send RPL_NOTOPIC.
+            user.sendMessage(
+                &ec,
+                ":{} 331 {} {} :No topic is set",
+                .{ CE(hostname, &ec), CE(nickname, &ec), CE(self._name, &ec) },
+            );
+        }
+    }
+
     /// Process join from a user. Note that it is a caller's responsibility to make sure that the
     /// user is not already in the channel.
     fn join(self: *Channel, user: *User) !void {
@@ -1619,26 +1684,7 @@ const Channel = struct {
         }
 
         // Send information about the channel topic.
-        if (self._topic) |topic| {
-            // Send RPL_TOPIC.
-            user.sendMessage(
-                &ec,
-                ":{} 332 {} {} :{}",
-                .{
-                    CE(hostname, &ec),
-                    CE(nickname, &ec),
-                    CE(self._name, &ec),
-                    CE(topic, &ec),
-                },
-            );
-        } else {
-            // Send RPL_NOTOPIC.
-            user.sendMessage(
-                &ec,
-                ":{} 331 {} {} :No topic is set",
-                .{ CE(hostname, &ec), CE(nickname, &ec), CE(self._name, &ec) },
-            );
-        }
+        self._sendTopic(user);
 
         // Send RPL_NAMREPLY.
         member_iter = self._members.iterator();
@@ -1702,6 +1748,48 @@ const Channel = struct {
             "User '{}' quit the channel (now at '{}' users).\n",
             .{ E(user.getNickName()), self._members.count() },
         );
+    }
+
+    /// Set/query the channel topic.
+    fn topicate(self: *Channel, user: *User, maybe_topic: ?[]const u8) !void {
+        if (maybe_topic) |topic| {
+            // The user sets a new topic.
+            const allocator = self._server.getAllocator();
+
+            var maybe_new_topic: ?[]const u8 = undefined;
+            if (topic.len != 0) {
+                // Make a copy of the topic string.
+                const topic_copy = allocator.alloc(u8, topic.len) catch |err| {
+                    self._warn(
+                        "Failed to allocate a topic storage with size of '{}' bytes: {}.\n",
+                        .{ topic.len, @errorName(err) },
+                    );
+                    return err;
+                };
+                errdefer allocator.free(topic_copy);
+                mem.copy(u8, topic_copy, topic);
+
+                maybe_new_topic = topic_copy;
+            } else {
+                maybe_new_topic = null;
+            }
+
+            if (self._topic) |old_topic| {
+                allocator.free(old_topic);
+            }
+            self._topic = maybe_new_topic;
+
+            // Inform all members about the new topic.
+            var member_iter = self._members.iterator();
+            while (member_iter.next()) |member_node| {
+                const member = member_node.key();
+                self._sendTopic(member);
+            }
+            return;
+        }
+
+        // The user queries the current topic.
+        self._sendTopic(user);
     }
 
     /// Send a message to all users in the channel.
