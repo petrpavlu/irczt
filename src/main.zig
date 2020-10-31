@@ -245,7 +245,8 @@ const Lexer = struct {
             const begin = self._pos + 1;
             const end = self._string.len;
             self._pos = end;
-            return if (begin != end) self._string[begin..end] else null;
+            // The last parameter after ':' is always valid and can be empty.
+            return self._string[begin..end];
         }
         return self._readWordNow();
     }
